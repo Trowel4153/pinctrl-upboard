@@ -611,15 +611,49 @@ struct upboard_cs {
 static struct upboard_cs cs_pins[2];
 inline void upboard_set_cs(u8 cs,bool level)
 {
-        if(cs_pins[cs].cs==NULL)
+        if(cs >= ARRAY_SIZE(cs_pins) || cs_pins[cs].cs==NULL)
                 return;
 	if (level)
 		cs_pins[cs].val |= PADCFG0_GPIOTXSTATE;
 	else
 		cs_pins[cs].val &= ~PADCFG0_GPIOTXSTATE;
-	writel(cs_pins[cs].val, cs_pins[cs].cs->regs);   
+	writel(cs_pins[cs].val, cs_pins[cs].cs->regs);
 }
 EXPORT_SYMBOL_GPL(upboard_set_cs);
+
+/*
+ * The SPI controller driver drives the HAT chip selects as GPIOs through
+ * upboard_set_cs(), so the pads have to be looked up here.  Match them by
+ * pin name instead of by a hard coded index, the index depends on which
+ * pin table the board uses and silently goes out of sync otherwise.
+ */
+static void upboard_cs_pin_setup(struct device *dev,
+				 struct upboard_pinctrl *pctrl,
+				 unsigned int cs, const char *name)
+{
+	int i;
+
+	cs_pins[cs].cs = NULL;
+
+	if (!name)
+		return;
+
+	for (i = 0; i < pctrl->pctldesc->npins; i++) {
+		if (!pctrl->pctldesc->pins[i].name ||
+		    strcmp(pctrl->pctldesc->pins[i].name, name))
+			continue;
+
+		if (!pctrl->pins[i].regs)
+			break;
+
+		cs_pins[cs].cs = &pctrl->pins[i];
+		cs_pins[cs].val = readl(pctrl->pins[i].regs);
+		return;
+	}
+
+	dev_warn(dev, "no pad for SPI chip select %s, CS%u disabled\n",
+		 name, cs);
+}
 
 static int upboard_set_mux(struct pinctrl_dev *pctldev, unsigned int function,
 			   unsigned int group)
@@ -1558,6 +1592,7 @@ static int upboard_pinctrl_probe(struct platform_device *pdev)
 	struct upboard_pin *pins;
 	const struct dmi_system_id *system_id;
 	const unsigned int *rpi_mapping;
+	const char *cs0_name, *cs1_name;
 	unsigned ngpio;
 	int ret;
 	int i,board_id=BOARD_UP_ADLN01; //default
@@ -1574,22 +1609,30 @@ static int upboard_pinctrl_probe(struct platform_device *pdev)
 		pctldesc = &upboard_up2_pinctrl_desc;
 		rpi_mapping = upboard_up2_rpi_mapping;
 		ngpio  = ARRAY_SIZE(upboard_up2_rpi_mapping);
+		cs0_name = "SPI1_CS0";
+		cs1_name = "SPI1_CS1";
 		break;
 		case BOARD_UP_UPCORE:
 		pctldesc = &upboard_upcore_crex_pinctrl_desc;
 		rpi_mapping = upboard_upcore_crex_rpi_mapping;
 		ngpio  = ARRAY_SIZE(upboard_upcore_crex_rpi_mapping);
+		cs0_name = "SPI2_CS0";
+		cs1_name = "SPI2_CS1";
 		break;
 		case BOARD_UP_CORE_PLUS:
 		pctldesc = &upboard_upcore_crst02_pinctrl_desc;
 		rpi_mapping = upboard_upcore_crst02_rpi_mapping;
-		ngpio  = ARRAY_SIZE(upboard_upcore_crst02_rpi_mapping);	
+		ngpio  = ARRAY_SIZE(upboard_upcore_crst02_rpi_mapping);
+		cs0_name = "SPI2_CS0";
+		cs1_name = "SPI2_CS1";
 		break;
 		default:
 		pctldesc = &upboard_up_pinctrl_desc;
 		rpi_mapping = upboard_up_rpi_mapping;
-		ngpio  = ARRAY_SIZE(upboard_up_rpi_mapping);		
-		break;	
+		ngpio  = ARRAY_SIZE(upboard_up_rpi_mapping);
+		cs0_name = "SPI_CS0";
+		cs1_name = "SPI_CS1";
+		break;
 	}
 
 	pctldesc->name = dev_name(&pdev->dev);
@@ -1686,16 +1729,13 @@ static int upboard_pinctrl_probe(struct platform_device *pdev)
 	upboard_alt_func_enable(&pctrl->chip,"ADC",pctrl->ident);
 	upboard_alt_func_enable(&pctrl->chip,"PINMUX",pctrl->ident); //up2 i2c pinmux
 
-	//pwm & cs pins setting
+	//cs pins setting, valid for every board that routes SPI to the HAT
+	upboard_cs_pin_setup(&pdev->dev, pctrl, 0, cs0_name);
+	upboard_cs_pin_setup(&pdev->dev, pctrl, 1, cs1_name);
+
+	//pwm setting
 	switch(pctrl->ident)
 	{
-	        case BOARD_UP_APL01:
-	        case BOARD_UPN_APL:
-                cs_pins[0].cs = &pctrl->pins[18];
-                cs_pins[0].val = readl(pctrl->pins[18].regs);  
-                cs_pins[1].cs = &pctrl->pins[17];
-                cs_pins[1].val = readl(pctrl->pins[17].regs);
-	        break;
 		case BOARD_UP_WHL01:
 		case BOARD_UPX_WHLite:
 		case BOARD_UPX_TGL:
@@ -1706,18 +1746,13 @@ static int upboard_pinctrl_probe(struct platform_device *pdev)
 		case BOARD_UPN_ASLH01:
 		case BOARD_UPX_MTL01:
 		case BOARD_UPV_PTL01:
-                cs_pins[0].cs = &pctrl->pins[21];
-                cs_pins[0].val = readl(pctrl->pins[21].regs);  
-                cs_pins[1].cs = &pctrl->pins[22];
-                cs_pins[1].val = readl(pctrl->pins[22].regs);
-                
                 //pwm resource
                 if(pctrl->ident==BOARD_UPX_MTL01 || pctrl->ident==BOARD_UPV_PTL01)
 	          upboard_pwm_register(1);
 	        else
 	          upboard_pwm_register(0);
-                break;		
-	}			
+                break;
+	}
 
 	return ret;
 }

@@ -3,7 +3,8 @@ pinctrl-upboard (1.1.9) stretch; urgency=medium
   * add support kernel 6.17+
   * add support UPX-PTL01  
 
- -- Gary Wang <garywang@aaeon.com.tw>  Tue, 10 Mar 2026 17:39:45+0100  
+ -- Gary Wang <garywang@aaeon.com.tw>  Tue, 10 Mar 2026 17:39:45 +0100
+
 pinctrl-upboard (1.1.8) stretch; urgency=medium
 
   * add support kernel 6.14+
@@ -12,6 +13,7 @@ pinctrl-upboard (1.1.8) stretch; urgency=medium
   * fix none fpga/cpld board  
   
  -- Gary Wang <garywang@aaeon.com.tw>  Wed, 30 Jul 2025 12:40:33 +0100
+
 pinctrl-upboard (1.1.7) stretch; urgency=medium
 
   * add support UPS-ASL01,UP-ASL02,UPN-TWL01,UP-TWL01,UP-TWL02,UPS-TWL01,UPN-TWLH01
@@ -20,6 +22,7 @@ pinctrl-upboard (1.1.7) stretch; urgency=medium
   * fix driver data get sequence issue for libgpiod 
   
  -- Gary Wang <garywang@aaeon.com.tw>  Wed, 16 Apr 2025 13:34:21 +0100
+
 pinctrl-upboard (1.1.6) stretch; urgency=medium
 
   * add support kernel 6.11+
@@ -28,6 +31,7 @@ pinctrl-upboard (1.1.6) stretch; urgency=medium
   * rename spi driver to spi-pxa2xx-up
   
  -- Gary Wang <garywang@aaeon.com.tw>  Thu, 7 Nov 2024 16:15:46 +0100
+
 pinctrl-upboard (1.1.5) stretch; urgency=medium
 
   * improve spi bus small data transfer
@@ -36,6 +40,7 @@ pinctrl-upboard (1.1.5) stretch; urgency=medium
   * correct dmi ident type for gcc 14.1  
   
  -- Gary Wang <garywang@aaeon.com.tw>  Wed, 10 Jul 2024 13:56:21 +0100
+
 pinctrl-upboard (1.1.4) stretch; urgency=medium
 
   * add support kernel 6.7+ 
@@ -45,12 +50,14 @@ pinctrl-upboard (1.1.4) stretch; urgency=medium
   * modify pure GPIO pin behavior, keep GPIO pin status when unexport/free pure GPIO pins
     
  -- Gary Wang <garywang@aaeon.com.tw>  Tue, 9 Apr 2024 14:06:15 +0100
+
 pinctrl-upboard (1.1.3) stretch; urgency=medium
 
   * fix up-apl01, upn-apl01 some pins interrupt not working 
   * fix open drain gpio output state 
     
  -- Gary Wang <garywang@aaeon.com.tw>  Tue, 3 Oct 2023 14:02:37 +0100
+
 pinctrl-upboard (1.1.2) stretch; urgency=medium
 
   * fix debian 12 dkms installation 
@@ -60,19 +67,22 @@ pinctrl-upboard (1.1.2) stretch; urgency=medium
   * upstream modification 
   
  -- Gary Wang <garywang@aaeon.com.tw>  Wed, 13 Sep 2023 10:33:58 +0100
+
 pinctrl-upboard (1.1.1) stretch; urgency=medium
 
   * fix dkms message 
   * fix build failed in kernel 6.2 
   
  -- Gary Wang <garywang@aaeon.com.tw>  Mon, 21 Aug 2023 17:57:06 +0100
+
 pinctrl-upboard (1.1.0) stretch; urgency=medium
 
   * add interrupt support
   * fix kernel 5.4- build issue 
   * fix pwm issue in UP-ADLN01
   
- -- Gary Wang <garywang@aaeon.com.tw>  Fri, 60 Jun 2023 10:32:10 +0100
+ -- Gary Wang <garywang@aaeon.com.tw>  Fri, 30 Jun 2023 10:32:10 +0100
+
 pinctrl-upboard (1.0.8) stretch; urgency=medium
 
   * add prototype check mechanism 
@@ -84,12 +94,14 @@ pinctrl-upboard (1.0.8) stretch; urgency=medium
   * fix i2c bus pin mode is not correct in UP-ADLN01
   
  -- Gary Wang <garywang@aaeon.com.tw>  Mon, 22 May 2023 13:50:15 +0100
+
 pinctrl-upboard (1.0.5) stretch; urgency=medium
 
   * add PWM support in UP WHL/TGL/ADL-P/ADL-N board
   * fixe kernel 5.4- build issue 
   
  -- Gary Wang <garywang@aaeon.com.tw>  Tue, 24 Mar 2023 16:11:20 +0100
+
 pinctrl-upboard (1.0.3) stretch; urgency=medium
 
   * add UP-ADLN01 board
@@ -98,11 +110,13 @@ pinctrl-upboard (1.0.3) stretch; urgency=medium
   * fix multi function pin set mode issue
   
  -- Gary Wang <garywang@aaeon.com.tw>  Mon, 27 Feb 2023 14:18:32 +0100
+
 pinctrl-upboard (1.0.1) stretch; urgency=medium
 
   * add UPS-ADLP01 board.
   
  -- Gary Wang <garywang@aaeon.com.tw>  Tue, 27 Dec 2022 19:28:13 +0100
+
 pinctrl-upboard (1.0.0) stretch; urgency=medium
 
   * MR1 Release.
@@ -112,21 +126,25 @@ pinctrl-upboard (1.0.0) stretch; urgency=medium
   * add UPN-ADLN support
 
  -- Gary Wang <garywang@aaeon.com.tw>  Tue, 26 Oct 2022 10:27:28 +0100
+
 pinctrl-upboard (0.8.0) stretch; urgency=medium
 
   * RC2 Release.
 
  -- Gary Wang <garywang@aaeon.com.tw>  Tue, 26 Oct 2022 10:27:28 +0100
+
 pinctrl-upboard (0.5.0) stretch; urgency=medium
 
   * RC1 Release.
 
  -- Gary Wang <garywang@aaeon.com.tw>  Tue, 20 Sep 2022 01:34:12 +0100
+
 pinctrl-upboard (0.2.1) stretch; urgency=medium
 
   * Beta Release.
 
  -- Gary Wang <garywang@aaeon.com.tw>  Tue, 31 Aug 2022 22:29:12 +0100
+
 pinctrl-upboard (0.1.0) stretch; urgency=medium
 
   * Alpha Release.

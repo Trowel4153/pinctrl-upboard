@@ -92,9 +92,16 @@ Any SPI transfer through `/dev/spidev*` on the 40-pin header: SCLK and MOSI are
 active on header pins 23 and 19, and header pins 24 (CE0) and 26 (CE1) stay at
 their idle level for the whole transfer. A slave never sees itself addressed.
 
-<!-- Fill in with the captured evidence before filing:
-     - logic analyser capture showing zero CS edges across a transfer
-     - the same transfer after the patch showing CS framing it
+<!-- Fill in with the captured evidence before filing.  Produce the figure with:
+
+  plot_capture.py runs/b0/digital.csv runs/b1/digital.csv \
+      --out mr1.svg --cs CE0 --labels "master" "with the fix" \
+      --title "UP 4000: SPI chip select across an 8-byte transfer"
+
+then replace this comment with:  ![](mr1.svg)
+
+The panel captions come from the decoder, so they carry the measured CS edge
+count, mode and clock rate without anyone typing a number.
 -->
 
 ## Reproduce

@@ -57,7 +57,18 @@ A logic analyser shows the bytes correctly on the wire in both cases — the
 defect is entirely in when the driver gives up reading them.
 
 <!-- Fill in before filing: loopback sweep across 4 MHz / 1 MHz / 100 kHz /
-     25 kHz showing where the returned data diverges from the wire. -->
+     25 kHz showing where the returned data diverges from the wire.
+
+The figure that makes this case is one capture at a rate where the driver
+returns wrong bytes, annotated with the correct bytes the decoder recovers
+from the wire, paired with the driver's own output:
+
+  plot_capture.py runs/mr3-100k/digital.csv --out mr3.svg --cs CE0 \
+      --title "100 kHz loopback: deadbeef on the wire"
+
+The caption reporting "MOSI deadbeef  MISO deadbeef  loopback match" next to
+an xfer2() that returned something else is the whole argument. Quote the
+target's output from run.json alongside it. -->
 
 ## Reproduce
 

@@ -85,8 +85,16 @@ Transfers of 32 bytes and over are unaffected — they take
 `pxa2xx_spi_transfer_one()`, so `spidev` users who only ever send long buffers
 will not see this.
 
-<!-- Fill in before filing: capture showing the requested vs measured
-     mode/rate for the same ioctl sequence, before and after the patch. -->
+<!-- Fill in before filing: capture of T2 below, before and after the patch.
+
+  plot_capture.py runs/b1-t2/digital.csv runs/b2-t2/digital.csv \
+      --out mr2.svg --cs CE0 \
+      --labels "master — request ignored" "with the fix" \
+      --title "8-byte transfer requesting mode 3 at 4 MHz"
+
+Add a second, zoomed figure over one or two bytes (--window START END) so the
+clock idle level and the sampling edge are legible; at 4 MHz the full-width
+view is too dense to show CPOL and CPHA. -->
 
 ## Reproduce
 

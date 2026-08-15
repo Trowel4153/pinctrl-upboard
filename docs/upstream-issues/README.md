@@ -32,6 +32,30 @@ Draft 01 is the exception worth considering filing early — it names a specific
 commit that removed a specific `default:` case, which a maintainer can confirm
 from the history alone in about a minute.
 
+## Figures
+
+Each SPI draft has a marked spot for a before/after waveform, rendered by
+`docs/testing/analysis/plot_capture.py` (§9 of the test plan). The panel
+captions are produced by the same decoder that `analyze_capture.py` asserts on,
+so the numbers under the figure are measurements rather than annotations
+someone typed — which is exactly the property that makes a figure worth putting
+in front of a maintainer.
+
+Two example figures, rendered from synthetic fixtures, show the output:
+[`mr1-chip-select.svg`](../testing/analysis/examples/mr1-chip-select.svg) and
+[`mr2-mode-and-clock.svg`](../testing/analysis/examples/mr2-mode-and-clock.svg).
+
+**Those two are fixtures, not measurements, and must not be attached to an
+issue.** They exist so you can see what the real ones will look like. Every
+figure the tool renders takes a `--footer`; put the build identifiers from each
+capture's `run.json` there, so a figure that escapes into a thread still says
+which builds produced it.
+
+For the issue body itself, commit the SVG somewhere GitHub can serve it and
+link it — GitHub renders SVG from a repository, the same mechanism badges use.
+For a drag-and-drop attachment, pass `--png` as well; PNG is the safe format
+for upload.
+
 If you would rather file before testing, say so in the issue rather than letting
 the omission speak: *"Analysis from reading the driver; we have a UP 4000 on the
 bench and will attach captures."* That is a fine issue. An issue that implies

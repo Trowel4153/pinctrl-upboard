@@ -45,6 +45,9 @@ MODULE_ALIAS("platform:pxa2xx-spi");
 
 #define TIMOUT_DFLT		1000
 
+/* Wall clock bound for the polled PIO transfer path */
+#define UP_XFER_TIMEOUT_MS	100
+
 /*
  * For testing SSCR1 changes that require SSP restart, basically
  * everything except the service and interrupt enables, the PXA270 developer
@@ -1019,9 +1022,21 @@ static int up_spi_transfer(struct driver_data *drv_data,
             if(drv_data->rx==NULL)
                 continue; //continue tx
 
-	    //rx
-            unsigned long limit = transfer->speed_hz/1000;
-    	    while(!(read_SSSR_bits(drv_data, SSSR_RNE)) && --limit);
+	    /*
+	     * rx, bounded by wall clock time.  A spin count scaled by the
+	     * bit rate expires before the word has even been clocked out
+	     * at the lower speeds, and the read below then stores whatever
+	     * SSDR happens to hold.
+	     */
+            unsigned long limit = jiffies + msecs_to_jiffies(UP_XFER_TIMEOUT_MS);
+    	    while(!(read_SSSR_bits(drv_data, SSSR_RNE))) {
+		    if (time_after(jiffies, limit)) {
+			    dev_err_ratelimited(&drv_data->controller->dev,
+						"timeout waiting for Rx data\n");
+			    return -ETIMEDOUT;
+		    }
+		    cpu_relax();
+	    }
 	    ReadVal(pxa2xx_spi_read(drv_data, SSDR), drv_data->rx);
 	    drv_data->rx += drv_data->n_bytes;
 	}

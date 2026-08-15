@@ -1002,12 +1002,22 @@ static int up_spi_transfer(struct driver_data *drv_data,
 		ReadVal = u32value;
 	}
 	
-	//SSCR0
-	pxa2xx_spi_write(drv_data, SSCR0, pxa2xx_configure_sscr0(drv_data, 
-	clk_div, transfer->bits_per_word) | SSCR0_SSE );
+	/*
+	 * SCR/DSS in SSCR0 and SPO/SPH in SSCR1 are only latched while the
+	 * SSP is disabled, so program them with SSE clear.  Writing SSCR0
+	 * with SSE already set leaves the controller running at whatever
+	 * speed and mode the previous transfer latched.
+	 */
+	/* On MMP, disabling SSE seems to corrupt the Rx FIFO */
+	if (!is_mmp2_ssp(drv_data))
+		pxa_ssp_disable(drv_data->ssp);
 	//SSCR1
 	pxa2xx_spi_write(drv_data, SSCR1, chip->cr1 );
-	
+	//SSCR0
+	pxa2xx_spi_write(drv_data, SSCR0, pxa2xx_configure_sscr0(drv_data,
+	clk_div, transfer->bits_per_word) );
+	pxa_ssp_enable(drv_data->ssp);
+
 	while(len>0)
 	{
 	    //tx

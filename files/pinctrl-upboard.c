@@ -1696,6 +1696,12 @@ static int upboard_pinctrl_probe(struct platform_device *pdev)
                 cs_pins[1].cs = &pctrl->pins[17];
                 cs_pins[1].val = readl(pctrl->pins[17].regs);
 	        break;
+	        case BOARD_UP_APL03:
+                cs_pins[0].cs = &pctrl->pins[21];
+                cs_pins[0].val = readl(pctrl->pins[21].regs);
+                cs_pins[1].cs = &pctrl->pins[22];
+                cs_pins[1].val = readl(pctrl->pins[22].regs);
+	        break;
 		case BOARD_UP_WHL01:
 		case BOARD_UPX_WHLite:
 		case BOARD_UPX_TGL:

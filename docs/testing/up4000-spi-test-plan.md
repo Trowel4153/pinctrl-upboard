@@ -63,11 +63,20 @@ The automation API cannot turn itself on, and it cannot set the logic level.
 - [ ] Decide where captures are written and make sure the directory exists.
       Give that path to the agent in §1.7.
 
-### 1.3 Claude Code and the MCP server, on the laptop
+### 1.3 Claude Code and the automation API, on the laptop
+
+Captures are driven by the **Logic 2 automation API** — a documented Python
+package over gRPC — not by an MCP server. §9 explains the choice. An MCP server
+is a useful extra for poking at the bus by hand, but nothing in this plan
+depends on one.
 
 - [ ] Claude Code installed on the **laptop**, not on the target. §2 explains
       why; the short version is that the target reboots repeatedly.
-- [ ] Saleae MCP server configured in Claude Code and pointed at port 10430.
+- [ ] `pip install logic2-automation`. The package documents support for
+      **Python 3.8–3.10**, so if your default interpreter is newer, make a
+      dedicated venv and tell the agent its path. The tools in
+      `docs/testing/analysis/` run on 3.8 or later either way.
+- [ ] Logic 2 **2.4.0 or later** — earlier releases have no automation server.
 - [ ] If you are using WSL2, resolve the `127.0.0.1` reachability problem now —
       mirrored networking, a portproxy, or just run Claude Code natively on
       Windows. See §2.
@@ -76,6 +85,10 @@ The automation API cannot turn itself on, and it cannot set the logic level.
 - [ ] Run the analysis self-tests once — no hardware needed, and it means the
       first real capture is not also the first execution of that code:
       `cd docs/testing/analysis && python3 test_analysis.py` (§9).
+- [ ] Rehearse a whole case with no hardware at all, which also proves the
+      Python environment is sane:
+      `python3 capture_runner.py --out /tmp/rehearsal --label demo
+      --simulate mode=0,hz=1e6,bytes=aa55aa55,cs-dead --expect-cs-edges 0`
 
 ### 1.4 Credentials — the parts that need a password
 
@@ -138,10 +151,22 @@ until ssh -o ConnectTimeout=5 -o BatchMode=yes up4000 true 2>/dev/null; do sleep
 echo "target came back"
 ```
 
-**Claude can drive the scope.** In Claude Code, ask it to list its Saleae MCP
-tools, take a short timed capture, export it, and read the file back. If it
-can name the export path and tell you the channel count, the MCP path works
-end to end.
+**Claude can drive the scope.** Two commands, both from
+`docs/testing/analysis/`. The first proves the automation server is up and the
+Logic is attached; the second takes a real capture, exports it, labels the
+columns and measures it:
+
+```bash
+python3 capture_runner.py --out /tmp/x --list-devices
+python3 capture_runner.py --out ~/captures/smoke --label smoke \
+    --target up4000 --seconds 2 \
+    --spi 'python3 ~/spi_case.py --mode 0 --speed 1000000 --len 8'
+```
+
+The second must print a decoded `mosi` value. If it does, every later case is
+the same command with different expectations. A `no CSV export found` or a
+connect timeout means the automation server checkbox in §1.2 is off, or the
+port differs.
 
 **The probes are on the pins you think they are.** This is the check that
 catches a miswire before it masquerades as a test result. With the stock or B0
@@ -168,6 +193,8 @@ Hand over these specifics; everything else it can discover.
 | SSH alias for the target | `up4000` |
 | Capture output directory on the laptop | `C:\up-test\captures` |
 | Saleae automation port, if not default | `10430` |
+| Python interpreter with `logic2-automation` | `~/venvs/saleae/bin/python` |
+| Channel map, if not D0–D4 in plan order | `MOSI=0,MISO=1,SCLK=2,CE0=3,CE1=4` |
 | Repo checkout on the laptop | `~/pinctrl-upboard` |
 | Whether the §4.1 one-time prep is already done | yes / no |
 
@@ -175,7 +202,8 @@ A kickoff prompt along these lines works:
 
 > Execute `docs/testing/up4000-spi-test-plan.md`. The target is the SSH host
 > `up4000`; passwordless sudo is set up. Logic 2's automation server is on
-> 10430 and captures go to `<path>`. Section 4.1 one-time prep is
+> 10430 and captures go to `<path>`; drive it with
+> `docs/testing/analysis/capture_runner.py`. Section 4.1 one-time prep is
 > **not** done yet — start there. Do the §4.2 pre-flight before building
 > anything with MR 1 in it, and **stop and ask me** if the gpiochip does not
 > report 28 lines. Work through MR 1, then MR 2, then MR 3, capturing baseline
@@ -202,8 +230,8 @@ decoding, tabulating — should run without you.
 
 ## 2. Test topology
 
-**Run Claude Code on the Windows laptop. SSH into the UP 4000. Keep Logic 2
-and the Saleae MCP server local to the laptop.**
+**Run Claude Code on the Windows laptop. SSH into the UP 4000. Keep Logic 2 and
+the automation server local to the laptop.**
 
 The decisive reason is reboots. The install procedure below reboots the target
 several times, and a Claude living on the target kills its own session every
@@ -211,26 +239,31 @@ time. A Claude on the laptop just waits for the SSH port to come back.
 
 Two supporting reasons:
 
-- Logic 2's automation server binds `127.0.0.1:10430`. Co-locating the MCP
-  server means nothing has to be forwarded or exposed.
+- Logic 2's automation server binds `127.0.0.1:10430`. Running the capture
+  script on the same machine means nothing has to be forwarded or exposed.
 - Logic 2 writes `.sal` captures and CSV exports onto **its own** filesystem.
   With Claude on the laptop those files are directly readable. With Claude on
   the target, every single export would need an `scp` back before it could be
   analysed.
 
 ```
-┌────────────────────────── Windows laptop ──────────────────────────┐
-│  Claude Code                                                       │
-│    ├── Saleae MCP server ── gRPC :10430 ── Logic 2 ── Logic 16 Pro │
-│    │                                                          │    │
-│    └── ssh ─────────────────────────────────────────────┐     │    │
-└─────────────────────────────────────────────────────────┼─────┼────┘
-                                                          │     │ probes
-                                                    ┌─────▼─────▼─────┐
-                                                    │  UP 4000        │
-                                                    │  40-pin HAT     │
-                                                    └─────────────────┘
+┌───────────────────────────── Windows laptop ─────────────────────────────┐
+│  Claude Code                                                             │
+│    └── capture_runner.py                                                 │
+│          ├── logic2-automation ── gRPC :10430 ── Logic 2 ── Logic 16 Pro │
+│          │                                                          │    │
+│          └── ssh ───────────────────────────────────────────┐       │    │
+└─────────────────────────────────────────────────────────────┼───────┼────┘
+                                                              │       │ probes
+                                                        ┌─────▼───────▼───┐
+                                                        │  UP 4000        │
+                                                        │  40-pin HAT     │
+                                                        └─────────────────┘
 ```
+
+One process owns both halves of a case, which is what makes the ordering
+reliable: the capture is running before the target touches a pin, and it is
+stopped after the transfer returns.
 
 ### Alternatives considered
 
@@ -239,8 +272,14 @@ Technically works for *issuing* capture commands, but captures and exports
 still land on the laptop, so you need a second path back for every artifact —
 and the session dies on every reboot. Not recommended.
 
+**A Saleae MCP server instead of the automation API.** See §9; the short
+version is that the automation API is the thing an MCP server wraps, and this
+plan needs the same capture taken identically about twenty times. Keep an MCP
+server around for interactive poking if you have one — it just is not what the
+matrix runs on.
+
 **Logic 2 on Linux.** Logic 2 ships a Linux build. If you have a spare Linux
-box, running Claude + Logic 2 + the MCP server there removes the Windows/WSL
+box, running Claude + Logic 2 + the automation server there removes the Windows/WSL
 friction entirely and is the cleanest option. Do **not** run Logic 2 on the
 UP 4000 itself — it is the device under test and it reboots.
 
@@ -630,16 +669,80 @@ Baseline contrast on `master`: the same `dpkg-parsechangelog` emits
 ## 9. Analysis tooling
 
 `docs/testing/analysis/` holds the tools that turn a capture into the numbers
-this plan asks for. They run on the laptop, on plain Python 3 with no
-dependencies.
+this plan asks for. They run on the laptop on plain Python 3; only
+`capture_runner.py` needs anything installed, and only when it is talking to a
+real Logic.
 
 | File | Purpose |
 |---|---|
+| `capture_runner.py` | one case end to end: arm, drive the target, export, measure |
 | `salcap.py` | parsing and measurement library |
 | `analyze_capture.py` | one capture → measurements, expectation checks, JSON |
 | `compare_runs.py` | two JSON results → the before/after table for an MR |
 | `make_fixture.py` | synthesise a capture with a known waveform |
 | `test_analysis.py` | self-tests, no hardware needed |
+
+### Drive Logic 2 through the automation API, not an MCP server
+
+Saleae publish a [Python automation
+API](https://saleae.github.io/logic2-automation/) over gRPC: `Manager.connect`,
+`start_capture`, `export_raw_data_csv`, `save_capture`. That is what
+`capture_runner.py` uses, and it is the right layer for this job for four
+reasons.
+
+- **It is what an MCP server wraps.** A Saleae MCP server is a translation of
+  this same gRPC interface into tool calls. Using the API directly removes a
+  layer whose behaviour would have to be discovered at the bench rather than
+  read from a reference.
+- **The same capture is taken about twenty times.** Four builds, five MR-2
+  cases, a clock sweep. Sample rate, threshold, channel set and export options
+  have to be byte-identical across all of them or the comparison is not a
+  comparison. A script guarantees that; a tool call re-decided each time by a
+  model does not.
+- **The ordering is tight and matters.** The capture has to be running before
+  the target touches a pin and stopped after the transfer returns — two
+  machines, one window. `capture_runner.py` owns both halves in one process.
+  Conversational tool calls interleave at the model's pace.
+- **Everything can be asserted and rehearsed.** A case is a command line with
+  an exit status, so the agent can gate on it, and `--simulate` runs the entire
+  path with a synthetic capture before the bench is even wired.
+
+None of this argues against having an MCP server. It is genuinely better for
+the thing scripts are bad at: looking at the bus when something surprising
+happens, mid-run, without writing code first. Use it for triage; use the
+automation API for the matrix.
+
+### Running a case
+
+```bash
+python3 capture_runner.py --out runs/mr1-b0 --label mr1-b0 \
+    --target up4000 \
+    --spi 'python3 ~/spi_case.py --mode 0 --speed 1000000 --len 8' \
+    --expect-cs-edges 0 --expect-mosi aa55aa55aa55aa55
+```
+
+That connects to Logic 2, starts a manual capture, runs the transfer over SSH,
+stops the capture, exports the raw CSV and a `.sal`, relabels the CSV columns
+`SCLK`/`MOSI`/`MISO`/`CE0`/`CE1`, and hands it to `analyze_capture.py`. Exit
+status is the analysis result: 0 all expectations held, 1 a measurement
+contradicted one, 2 the capture was unreadable, 3 the capture never happened.
+
+**Exit 1 is a result, not a malfunction.** On a baseline build, the
+expectations that describe the fixed behaviour are supposed to fail. That is
+the evidence.
+
+Each run directory ends up holding `digital.csv`, `capture.sal`,
+`analysis.json`, and a `run.json` recording the label, the channel map, the
+target command with its own stdout and exit status, and the build provenance
+read off the target at capture time — `/etc/up-testbuild`, `uname -r`, and the
+module `srcversion`. A capture therefore cannot be separated from the build
+that produced it, which is the failure mode this plan is most exposed to.
+
+Useful flags: `--seconds N` for a timed capture instead of a manual one,
+`--sample-rate` and `--threshold` if §1.2's defaults do not suit,
+`--channels NAME=INDEX,…` if the probes are not on D0–D4 in plan order,
+`--list-devices` when more than one Logic is attached, and `--simulate` to
+fabricate the capture and exercise everything downstream of it.
 
 ### Export raw, not analyzer output
 
@@ -651,8 +754,11 @@ mode can be reported independently of any mode an analyzer was configured
 with. Both the change-based and uniformly-sampled raw exports parse.
 
 Channels are matched by name (`SCLK`, `MOSI`, `MISO`, `CE0`, `CE1` — see
-§1.2), falling back to `D0`-style short names or bare indices. If you named
-the channels in Logic 2 the defaults just work.
+§1.2), falling back to `D0`-style short names or bare indices. `capture_runner.py`
+relabels the exported header to those names from its `--channels` map, so a
+capture taken through the runner needs no channel arguments downstream; a CSV
+exported by hand from the GUI needs either named channels in Logic 2 or explicit
+`--sclk`/`--mosi`/`--miso`/`--cs` flags.
 
 ### What it measures
 
@@ -689,11 +795,21 @@ clamps outright.
 
 ### Producing the report
 
+`capture_runner.py` has already written an `analysis.json` into each run
+directory, so the table is one command:
+
+```bash
+compare_runs.py runs/mr1-b0/analysis.json runs/mr1-b1/analysis.json \
+                --labels B0 B1 --title "MR 1 - chip select" \
+                --provenance B0-master B1-cs-apl03
+```
+
+Take the `--provenance` strings from the `build_id` field of each run's
+`run.json`, so the table names the builds it came from. If you are analysing a
+CSV that did not come through the runner, produce the JSON first:
+
 ```bash
 analyze_capture.py mr1-b0.csv --cs CE0 --json b0.json --quiet
-analyze_capture.py mr1-b1.csv --cs CE0 --json b1.json --quiet
-compare_runs.py b0.json b1.json --labels B0 B1 --title "MR 1 - chip select" \
-                --provenance $(cat b0-build.txt) $(cat b1-build.txt)
 ```
 
 Which yields, from the synthetic fixtures:
@@ -714,22 +830,27 @@ so the table shows what the fix changed and nothing else.
 cd docs/testing/analysis && python3 test_analysis.py
 ```
 
-45 checks over synthetic captures covering all four SPI modes, a dead chip
-select, the stale-mode scenarios from §6, the MR 3 loopback sweep, and
-malformed input. Run it before the bench session: if it passes, a surprising
-result on real hardware is evidence about the driver rather than about the
-analysis code.
+57 checks over synthetic captures covering all four SPI modes, a dead chip
+select, the stale-mode scenarios from §6, the MR 3 loopback sweep, the runner's
+column labelling, and malformed input. Run it before the bench session: if it
+passes, a surprising result on real hardware is evidence about the driver
+rather than about the analysis code.
 
-You can also dry-run the whole pipeline with no hardware at all:
+You can also rehearse a full MR with no hardware at all. `--simulate` replaces
+the Logic with a synthetic capture and leaves everything downstream real, so
+the exports, the labelling, the expectations, the exit statuses and the
+comparison table all run:
 
 ```bash
-make_fixture.py --out demo-b0.csv --mode 0 --hz 1e6 --bytes aa55aa55 --cs-dead
-make_fixture.py --out demo-b1.csv --mode 0 --hz 1e6 --bytes aa55aa55
-analyze_capture.py demo-b0.csv --cs CE0 --expect-cs-edges 0   # exit 0
-analyze_capture.py demo-b0.csv --cs CE0 --expect-cs-edges 2   # exit 1, names the mismatch
+python3 capture_runner.py --out /tmp/demo/b0 --label demo-b0 \
+    --simulate mode=0,hz=1e6,bytes=aa55aa55,cs-dead --expect-cs-edges 0
+python3 capture_runner.py --out /tmp/demo/b1 --label demo-b1 \
+    --simulate mode=0,hz=1e6,bytes=aa55aa55 --expect-cs-edges 2
+compare_runs.py /tmp/demo/b0/analysis.json /tmp/demo/b1/analysis.json --labels B0 B1
 ```
 
-That is worth doing once before the target is even powered, so the first real
+Both exit 0; swap either expectation and that run exits 1 and names the
+mismatch. Do this once before the target is even powered, so the first real
 capture is not also the first time this code has executed.
 
 ---

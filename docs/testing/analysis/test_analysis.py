@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import capture_runner
 import make_fixture
 import salcap
 
@@ -170,6 +171,34 @@ def run(tmp: Path) -> None:
     p2.write_text("Time,A,B\n0.0,false,true\n0.001,true,false\n", encoding="utf-8")
     c2 = salcap.Capture.from_csv(str(p2))
     expect("true/false parsed", c2.levels["A"], [0, 1])
+
+    print("\ncapture_runner labels the exported columns")
+    chmap = capture_runner.parse_channels("MOSI=0,MISO=1,SCLK=2,CE0=3,CE1=4")
+    expect("channel map parses", chmap["SCLK"], 2)
+
+    def labelled(header: list[str]) -> list[str]:
+        p = tmp / f"hdr{abs(hash(tuple(header)))}.csv"
+        with open(p, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(header)
+            w.writerow(["0.0"] + ["0"] * (len(header) - 1))
+        return capture_runner.label_columns(p, chmap)
+
+    named = ["MOSI", "MISO", "SCLK", "CE0", "CE1"]
+    expect("channels named in the Logic 2 UI are kept as-is",
+           labelled(["Time [s]"] + named), named)
+    expect("Channel N names map through the index",
+           labelled(["Time [s]", "Channel 2", "Channel 0", "Channel 1",
+                     "Channel 3", "Channel 4"]),
+           ["SCLK", "MOSI", "MISO", "CE0", "CE1"])
+    expect("unrecognisable names fall back to ascending export order",
+           labelled(["Time [s]", "a", "b", "c", "d", "e"]),
+           ["MOSI", "MISO", "SCLK", "CE0", "CE1"])
+    try:
+        labelled(["Time [s]", "a", "b"])
+        expect("a short header is rejected", False, True)
+    except RuntimeError as exc:
+        expect("a short header is rejected", "channel map" in str(exc), True)
 
     print("\nmalformed input fails loudly")
     bad = tmp / "bad.csv"

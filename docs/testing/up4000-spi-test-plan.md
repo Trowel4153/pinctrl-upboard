@@ -678,6 +678,7 @@ real Logic.
 | `capture_runner.py` | one case end to end: arm, drive the target, export, measure |
 | `salcap.py` | parsing and measurement library |
 | `analyze_capture.py` | one capture → measurements, expectation checks, JSON |
+| `plot_capture.py` | one or two captures → an annotated waveform figure |
 | `compare_runs.py` | two JSON results → the before/after table for an MR |
 | `make_fixture.py` | synthesise a capture with a known waveform |
 | `test_analysis.py` | self-tests, no hardware needed |
@@ -824,17 +825,53 @@ Which yields, from the synthetic fixtures:
 Rows that are identical in both runs are hidden unless you pass `--all-rows`,
 so the table shows what the fix changed and nothing else.
 
+### Figures for the issue and the MR
+
+The automation API exports data and nothing graphical — there is no screenshot,
+image or viewport call anywhere in it — so figures are rendered by
+`plot_capture.py`:
+
+```bash
+plot_capture.py runs/mr1-b0/digital.csv runs/mr1-b1/digital.csv \
+    --out figs/mr1.svg --cs CE0 --labels "master" "with the fix" \
+    --title "UP 4000: SPI chip select across an 8-byte transfer" \
+    --footer "$(cat runs/mr1-b0/build.txt) vs $(cat runs/mr1-b1/build.txt)"
+```
+
+Two captures stack into one before/after figure, which is the shape an issue
+wants. The panel captions are not typed in — they are the same measurements
+`analyze_capture.py` asserts on, read from the same decoder, so the picture and
+the claim cannot drift apart. Chip-select assert windows are shaded, and a
+channel that never moves says so on its own trace, which is the MR 1 story in
+one glance.
+
+Output is SVG: no dependencies, crisp at any zoom, a few tens of kB, and
+rendered by GitHub when committed to a repository. Add `--png PATH` for a
+drag-and-drop attachment; it converts with `rsvg-convert`, `cairosvg`,
+`inkscape`, ImageMagick or a headless Chrome, whichever is installed.
+
+Two worked examples, rendered from synthetic fixtures, are committed next to the
+tool so you can see the output before the bench exists:
+[`examples/mr1-chip-select.svg`](analysis/examples/mr1-chip-select.svg) and
+[`examples/mr2-mode-and-clock.svg`](analysis/examples/mr2-mode-and-clock.svg).
+Both carry a footer saying they are fixtures. Never let a synthetic figure
+travel as evidence.
+
+At 4 MHz the clock is dense enough that CPOL and CPHA are hard to see at full
+width. Pass `--window START END` (seconds) to zoom to a byte or two when the
+figure needs to show the sampling edge rather than the whole transfer.
+
 ### Validate the pipeline before the bench
 
 ```bash
 cd docs/testing/analysis && python3 test_analysis.py
 ```
 
-57 checks over synthetic captures covering all four SPI modes, a dead chip
+64 checks over synthetic captures covering all four SPI modes, a dead chip
 select, the stale-mode scenarios from §6, the MR 3 loopback sweep, the runner's
-column labelling, and malformed input. Run it before the bench session: if it
-passes, a surprising result on real hardware is evidence about the driver
-rather than about the analysis code.
+column labelling, the figure renderer, and malformed input. Run it before the
+bench session: if it passes, a surprising result on real hardware is evidence
+about the driver rather than about the analysis code.
 
 You can also rehearse a full MR with no hardware at all. `--simulate` replaces
 the Logic with a synthetic capture and leaves everything downstream real, so

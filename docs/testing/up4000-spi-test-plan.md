@@ -14,9 +14,190 @@ branch produces a before/after pair rather than a bare "it works" claim.
 Target board: **UP 4000** (`/sys/class/dmi/id/board_name` = `UP-APL03`,
 board id 9 = `BOARD_UP_APL03`).
 
+**Where to start.** If you are setting the bench up, start at **§1** — it is
+the human-only part: wiring, GUI settings, credentials, and the recovery plan
+for when a build misbehaves. If you are the agent executing the run, start at
+**§2** and treat §1 as already done; §1.6 is the smoke test that says it is.
+
 ---
 
-## 1. Test topology
+## 1. Human setup — do this before handing off to Claude
+
+Everything in this section needs hands, a GUI, a password, or a judgement call
+an agent should not be making on its own. The rest of the plan is written to
+be executed by either a human or an agent; this section is not.
+
+Work through it in order and tick each box. The handoff smoke test in §1.6 is
+the gate — if it passes, the agent has everything it needs.
+
+### 1.1 Bench, physical
+
+- [ ] UP 4000 powered, on the network, reachable by IP. Note the IP.
+- [ ] **Physical access retained** — monitor and keyboard attached, or a serial
+      console. See §1.5; this is not optional.
+- [ ] Logic 16 Pro connected to the laptop by USB.
+- [ ] Probe leads on the header per the §3 table: D0→pin 23, D1→pin 19,
+      D2→pin 21, D3→pin 24, D4→pin 26, **GND→pin 25**.
+- [ ] **Loopback jumper: header pin 19 ↔ pin 21.** MR 3 cannot be tested
+      without it, and it does no harm to the others.
+- [ ] Count pins twice, from the pin-1 marker. A silently miswired D3 will look
+      exactly like "CS never toggles", which is the very thing MR 1 is
+      supposed to prove. §1.6 includes a check that catches this.
+
+Nothing here is hot-pluggable in any meaningful sense, but power the target
+down before moving probe leads anyway.
+
+### 1.2 Logic 2, in the GUI
+
+The automation API cannot turn itself on, and it cannot set the logic level.
+
+- [ ] Install Logic 2 on the laptop, launch it, confirm the device appears.
+- [ ] Preferences → **enable the automation server**. Leave the port at 10430
+      unless you have a reason; if you change it, tell the agent.
+- [ ] Set the digital **logic level to 3.3 V**. The UP 4000 header is 3.3 V and
+      a wrong threshold produces plausible-looking garbage rather than an
+      obvious failure.
+- [ ] Enable channels D0–D4, set the sample rate to **100 MS/s**, digital only.
+- [ ] Name the channels SCLK / MOSI / MISO / CE0 / CE1. Cosmetic, but it makes
+      every exported CSV self-describing.
+- [ ] Decide where captures are written and make sure the directory exists.
+      Give that path to the agent in §1.7.
+
+### 1.3 Claude Code and the MCP server, on the laptop
+
+- [ ] Claude Code installed on the **laptop**, not on the target. §2 explains
+      why; the short version is that the target reboots repeatedly.
+- [ ] Saleae MCP server configured in Claude Code and pointed at port 10430.
+- [ ] If you are using WSL2, resolve the `127.0.0.1` reachability problem now —
+      mirrored networking, a portproxy, or just run Claude Code natively on
+      Windows. See §2.
+- [ ] Clone this repository on the laptop so the agent has the plan and
+      `spi_case.py` locally.
+
+### 1.4 Credentials — the parts that need a password
+
+An agent cannot type a password into an interactive prompt. Each of these is a
+one-time human action that makes the whole run non-interactive afterwards.
+
+- [ ] SSH key onto the target: `ssh-copy-id up@<target-ip>`.
+- [ ] `~/.ssh/config` entry so the agent can just say `up4000` (§2).
+- [ ] **Connect once by hand** to accept the host key. A first-connection
+      prompt will otherwise stall the agent's first command.
+- [ ] Passwordless sudo on the target:
+      `echo "up ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/up-test`
+- [ ] Install the packages that need sudo:
+      `sudo apt install -y build-essential linux-headers-$(uname -r) git python3-spidev gpiod`
+
+Passwordless sudo on a test board on your bench is fine. Do not leave it on a
+box that does anything else.
+
+### 1.5 Recovery plan — the one thing an agent cannot do for you
+
+MR 1 makes the pinctrl probe read a pad register on this board for the first
+time. The §4.2 pre-flight is there to establish that the read is safe, but the
+honest position is that these branches have never been compiled, let alone
+booted. Assume at least one build will misbehave.
+
+- [ ] Know how to get a GRUB menu on this board (hold or tap `Shift`, or `Esc`,
+      during boot).
+- [ ] Know the escape hatch: at the GRUB menu press `e`, append
+      **`modprobe.blacklist=pinctrl_upboard,spi_pxa2xx_up,upboard_fpga`** to the
+      `linux` line, `Ctrl-X` to boot. That gets you a shell with the test
+      modules inert, from which you can delete
+      `/lib/modules/$(uname -r)/updates/*.ko` and `depmod -a`.
+- [ ] Keep the original `pinctrl-upboard_*.deb` somewhere you can reach it, so
+      you can put the board back to stock in one command.
+- [ ] **Be at the console for the first boot of B1** (the first build carrying
+      MR 1). Later reboots are safe to leave to the agent; that one is not.
+- [ ] If the board hangs, the agent will report an SSH timeout and stop. It
+      cannot power-cycle. That is your job.
+
+### 1.6 Handoff smoke test
+
+Run these before starting the real work. All of them must pass without
+prompting you for anything.
+
+**Target reachable, sudo silent, board is what we think it is:**
+
+```bash
+ssh -o BatchMode=yes up4000 \
+  'sudo true && echo SUDO_OK; cat /sys/class/dmi/id/board_name; uname -r'
+```
+
+Expect `SUDO_OK`, then `UP-APL03`, then the kernel version. A password prompt
+or a host-key question here means §1.4 is incomplete.
+
+**Reboot-and-return works unattended:**
+
+```bash
+ssh up4000 sudo reboot
+until ssh -o ConnectTimeout=5 -o BatchMode=yes up4000 true 2>/dev/null; do sleep 5; done
+echo "target came back"
+```
+
+**Claude can drive the scope.** In Claude Code, ask it to list its Saleae MCP
+tools, take a short timed capture, export it, and read the file back. If it
+can name the export path and tell you the channel count, the MCP path works
+end to end.
+
+**The probes are on the pins you think they are.** This is the check that
+catches a miswire before it masquerades as a test result. With the stock or B0
+build loaded, have the agent start a capture while you drive each CS line as a
+plain GPIO:
+
+```bash
+# on the target; BCM8 = CE0 = header pin 24, BCM7 = CE1 = header pin 26
+gpioset $(gpiofind GPIO8 | cut -d' ' -f1) $(gpiofind GPIO8 | cut -d' ' -f2)=0
+sleep 1
+gpioset $(gpiofind GPIO8 | cut -d' ' -f1) $(gpiofind GPIO8 | cut -d' ' -f2)=1
+```
+
+D3 must move, and nothing else must. Repeat for GPIO7 and D4. If the wrong
+channel moves, fix the wiring now — not after you have captured a day of data.
+Use `gpioinfo` to confirm the line names on your kernel's libgpiod version.
+
+### 1.7 What to tell the agent
+
+Hand over these specifics; everything else it can discover.
+
+| Item | Example |
+|---|---|
+| SSH alias for the target | `up4000` |
+| Capture output directory on the laptop | `C:\up-test\captures` |
+| Saleae automation port, if not default | `10430` |
+| Repo checkout on the laptop | `~/pinctrl-upboard` |
+| Whether the §4.1 one-time prep is already done | yes / no |
+
+A kickoff prompt along these lines works:
+
+> Execute `docs/testing/up4000-spi-test-plan.md`. The target is the SSH host
+> `up4000`; passwordless sudo is set up. Logic 2's automation server is on
+> 10430 and captures go to `<path>`. Section 4.1 one-time prep is
+> **not** done yet — start there. Do the §4.2 pre-flight before building
+> anything with MR 1 in it, and **stop and ask me** if the gpiochip does not
+> report 28 lines. Work through MR 1, then MR 2, then MR 3, capturing baseline
+> and fix for each, and give me the §10 report at the end. I will be at the
+> console for the first B1 boot — tell me before you reboot into it.
+
+### 1.8 When the agent will need you
+
+Expect to be interrupted for these, and only these:
+
+- The first B1 boot (§1.5), by prior arrangement.
+- A failed §4.2 pre-flight — fewer than 28 gpiochip lines means MR 1 needs a
+  code change before it is safe to boot, which is a decision, not a step.
+- A build failure that is not an obvious typo. These branches are uncompiled;
+  a real portability problem against your kernel version is worth looking at
+  together.
+- A hung target (§1.5).
+- Re-seating a probe if a channel reads flat when the others are active.
+
+Everything else — building, installing, rebooting, capturing, exporting,
+decoding, tabulating — should run without you.
+
+---
+
+## 2. Test topology
 
 **Run Claude Code on the Windows laptop. SSH into the UP 4000. Keep Logic 2
 and the Saleae MCP server local to the laptop.**
@@ -60,34 +241,15 @@ box, running Claude + Logic 2 + the MCP server there removes the Windows/WSL
 friction entirely and is the cleanest option. Do **not** run Logic 2 on the
 UP 4000 itself — it is the device under test and it reboots.
 
-### Laptop prerequisites
+### Prerequisites
 
-- Logic 2 → Preferences → **enable the automation server** (default port 10430).
-- Saleae MCP server configured in Claude Code, pointed at that port.
-- OpenSSH client.
-- If running Claude Code under **WSL2**: WSL cannot reach the Windows
-  `127.0.0.1` by default. Either run Claude Code natively on Windows, or set
-  `networkingMode=mirrored` in `.wslconfig` (Windows 11 22H2+), or add a
-  `netsh interface portproxy` rule. Native Windows is the least trouble.
+Laptop, target and credential setup all live in §1 so there is one copy of
+each command. The WSL2 `127.0.0.1` problem is §1.3; passwordless SSH and sudo
+are §1.4.
 
-### Target prerequisites (required for autonomy)
+### Reboot handling
 
-```bash
-# on the laptop
-ssh-copy-id up@<target-ip>
-# in ~/.ssh/config
-Host up4000
-    HostName <target-ip>
-    User up
-```
-
-```bash
-# on the target — passwordless sudo, or every step blocks on a password prompt
-echo "up ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/up-test
-sudo apt install -y build-essential linux-headers-$(uname -r) git python3-spidev
-```
-
-Reboot-and-wait pattern for the executing agent:
+The agent reboots the target repeatedly and must wait for it to return:
 
 ```bash
 ssh up4000 sudo reboot
@@ -99,7 +261,7 @@ foreground `sleep` loop.
 
 ---
 
-## 2. Probe wiring
+## 3. Probe wiring
 
 UP 4000's 40-pin header is Raspberry Pi compatible. Confirmed against
 `upboard_up_rpi_mapping[]` in `files/pinctrl-upboard.c`: index 7 → `SPI_CS1`,
@@ -127,13 +289,13 @@ level**. 100 MS/s gives 25 samples per bit at 4 MHz, which is plenty.
 
 ---
 
-## 3. Build and install
+## 4. Build and install
 
 This is the step most likely to go wrong, so it is written to be ordered,
 idempotent, and verifiable at every stage. **Do not use DKMS or `debuild` for
 testing** — build out-of-tree and install the `.ko` files by hand.
 
-### 3.1 One-time preparation
+### 4.1 One-time preparation
 
 The stock DKMS package installs into `/lib/modules/$(uname -r)/updates/dkms/`.
 Leaving it in place while you drop test modules into `updates/` creates two
@@ -166,7 +328,7 @@ ls /lib/firmware/acpi-upgrades/ | grep pci0.spi                        # overlay
 ls /sys/bus/spi/devices/                                               # spidev devices exist
 ```
 
-### 3.2 Pre-flight: confirm the CS pads are actually mapped
+### 4.2 Pre-flight: confirm the CS pads are actually mapped
 
 MR 1 makes the probe do `readl(pctrl->pins[21].regs)` on this board for the
 first time. `upboard_acpi_get_pins()` only fills `.regs` for indices below
@@ -194,7 +356,7 @@ sudo acpidump -b && iasl -d *.dat 2>/dev/null
 grep -n "external-gpios" -B5 -A40 dsdt.dsl    # count GpioIo() entries: need >= 23
 ```
 
-### 3.3 Building a test build
+### 4.3 Building a test build
 
 ```bash
 cd ~/pinctrl-upboard
@@ -209,7 +371,7 @@ cd files && make -j$(nproc)
 > `git checkout -f`, or `git checkout -- files/protos.c` first. This is
 > pre-existing upstream behaviour, not something the fixes introduced.
 
-### 3.4 Installing and proving which build is live
+### 4.4 Installing and proving which build is live
 
 ```bash
 K=$(uname -r)
@@ -249,7 +411,7 @@ sudo modprobe -r spidev; sudo rmmod spi_pxa2xx_up pinctrl_upboard pwm_upboard up
 sudo modprobe upboard-fpga && sudo modprobe pinctrl-upboard && sudo modprobe spi-pxa2xx-up
 ```
 
-### 3.5 Builds required
+### 4.5 Builds required
 
 Each build differs from its comparison baseline by exactly one branch.
 
@@ -271,7 +433,7 @@ git merge --no-edit origin/claude/spi-cs-apl03        # B1
 git merge --no-edit origin/claude/spi-sscr-latch      # B2
 ```
 
-### 3.6 Finding the spidev nodes
+### 4.6 Finding the spidev nodes
 
 Do not hardcode `/dev/spidev1.0`; the bus number is assigned at probe.
 
@@ -287,7 +449,7 @@ header pin 24) throughout unless a test says otherwise.
 
 ---
 
-## 4. MR 1 — chip select (`claude/spi-cs-apl03`)
+## 5. MR 1 — chip select (`claude/spi-cs-apl03`)
 
 **Claim:** on B0 the CS line never moves during a transfer; on B1 it asserts
 low for the transfer and returns high.
@@ -321,7 +483,7 @@ exactly one assert/deassert pair and the full 8 bytes decoded.
 
 ---
 
-## 5. MR 2 — mode and clock rate (`claude/spi-sscr-latch`)
+## 6. MR 2 — mode and clock rate (`claude/spi-sscr-latch`)
 
 **Claim:** `up_spi_transfer()` writes SSCR0 with SSE already set, so SCR/DSS
 and SPO/SPH are never latched and short transfers run with whatever the
@@ -382,7 +544,7 @@ B2, every case matches its request.
 
 ---
 
-## 6. MR 3 — Rx poll bound (`claude/spi-rx-timeout`)
+## 7. MR 3 — Rx poll bound (`claude/spi-rx-timeout`)
 
 **Claim:** `limit = transfer->speed_hz/1000` is a spin count that shrinks
 exactly as the per-word time grows. At 100 kHz it allows 100 MMIO reads
@@ -436,7 +598,7 @@ fails. On B3 you should see either exit 0 with MATCH, or exit 2 — never exit 1
 
 ---
 
-## 7. MR 4 — changelog (`claude/debian-changelog`)
+## 8. MR 4 — changelog (`claude/debian-changelog`)
 
 No target and no scope required. Anywhere with `devscripts`:
 
@@ -453,7 +615,7 @@ Baseline contrast on `master`: the same `dpkg-parsechangelog` emits
 
 ---
 
-## 8. Final integration pass
+## 9. Final integration pass
 
 Build **B4** (B1 + MR 2 + MR 3) and re-run the MR 1 case, the MR 2 T1–T5
 sequence, and the MR 3 sweep. All must pass simultaneously. This catches any
@@ -475,7 +637,7 @@ went into the wrong switch case.
 
 ---
 
-## 9. Reporting
+## 10. Reporting
 
 Suggested artifact layout on the laptop:
 
@@ -497,17 +659,17 @@ provenance proves nothing.
 
 ---
 
-## 10. Known risks
+## 11. Known risks
 
-1. **NULL pad registers.** Covered by the §3.2 pre-flight. If the gpiochip has
+1. **NULL pad registers.** Covered by the §4.2 pre-flight. If the gpiochip has
    fewer than 28 lines, MR 1 will oops at probe and needs a guard first.
-2. **`protos.c` is modified by the build.** Always `git checkout -f`. §3.3.
-3. **DKMS shadowing.** Remove the packaged version once, §3.1, or you cannot
+2. **`protos.c` is modified by the build.** Always `git checkout -f`. §4.3.
+3. **DKMS shadowing.** Remove the packaged version once, §4.1, or you cannot
    trust which module is loaded.
 4. **ACPI overlays are separate from the modules.** They come from
    `make setup`, not from the `.ko` files. Removing the deb without re-running
    setup leaves you with no spidev nodes at all.
-5. **CS-edge triggers hang the MR 1 baseline.** Timed captures only. §2.
+5. **CS-edge triggers hang the MR 1 baseline.** Timed captures only. §3.
 6. **Nothing here is compile-tested yet.** The four branches were written
    without kernel headers available. Expect to fix build errors on first
    contact, and treat a clean `make` as the real first test.

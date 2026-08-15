@@ -71,8 +71,11 @@ The automation API cannot turn itself on, and it cannot set the logic level.
 - [ ] If you are using WSL2, resolve the `127.0.0.1` reachability problem now —
       mirrored networking, a portproxy, or just run Claude Code natively on
       Windows. See §2.
-- [ ] Clone this repository on the laptop so the agent has the plan and
-      `spi_case.py` locally.
+- [ ] Clone this repository on the laptop so the agent has the plan,
+      `spi_case.py` and the analysis tools in `docs/testing/analysis/` locally.
+- [ ] Run the analysis self-tests once — no hardware needed, and it means the
+      first real capture is not also the first execution of that code:
+      `cd docs/testing/analysis && python3 test_analysis.py` (§9).
 
 ### 1.4 Credentials — the parts that need a password
 
@@ -176,7 +179,7 @@ A kickoff prompt along these lines works:
 > **not** done yet — start there. Do the §4.2 pre-flight before building
 > anything with MR 1 in it, and **stop and ask me** if the gpiochip does not
 > report 28 lines. Work through MR 1, then MR 2, then MR 3, capturing baseline
-> and fix for each, and give me the §10 report at the end. I will be at the
+> and fix for each, and give me the §11 report at the end. I will be at the
 > console for the first B1 boot — tell me before you reboot into it.
 
 ### 1.8 When the agent will need you
@@ -528,15 +531,24 @@ Measurements per capture, from the exported raw digital CSV:
 - **Clock rate** — median SCLK period across the transfer. Expect ~1 MHz vs
   ~4 MHz. Report the measured value; the SSP divisor is integer so the
   achieved rate will be close but not exact.
-- **CPHA** — which SCLK edge MOSI transitions on.
-- **Decode check** — configure the SPI analyser for the *requested* mode. If
-  the wire matches the request it decodes `aa55…`; if not, it produces garbage
-  or nothing.
+- **CPHA** — which SCLK edge MOSI transitions on. Needs a payload that
+  transitions every bit, which is why the cases use `aa55`.
 
-> The loopback jumper does **not** detect this bug. The controller both drives
-> and samples, so RX matches TX even when the mode is wrong. For MR 2 the
-> logic capture is the only oracle — do not accept a passing RX buffer as
-> evidence.
+```bash
+analyze_capture.py t2.csv --cs CE0 --expect-mode 3 --expect-hz 4e6
+```
+
+> **The decoded bytes cannot tell you the mode.** An earlier draft of this plan
+> claimed you could set the analyser to the requested mode and read garbage
+> when the wire disagreed. That is wrong, and the analysis self-tests
+> (§9) disprove it: when the data line is held for a full clock period, every
+> mode samples inside the valid window, so all four decode `aa55…` identically.
+> Assert on **CPOL, CPHA and clock rate**. Never on the payload.
+
+> The loopback jumper does **not** detect this bug either. The controller both
+> drives and samples, so RX matches TX even when the mode is wrong. For MR 2
+> the measured clock idle level and rate are the only oracle — do not accept a
+> passing RX buffer, or a clean decode, as evidence.
 
 Pass criteria: on B1, T2 measures CPOL=0 and ~1 MHz while requesting mode 3 /
 4 MHz, and T5 measures CPOL=1 and ~4 MHz while requesting mode 0 / 1 MHz. On
@@ -615,7 +627,114 @@ Baseline contrast on `master`: the same `dpkg-parsechangelog` emits
 
 ---
 
-## 9. Final integration pass
+## 9. Analysis tooling
+
+`docs/testing/analysis/` holds the tools that turn a capture into the numbers
+this plan asks for. They run on the laptop, on plain Python 3 with no
+dependencies.
+
+| File | Purpose |
+|---|---|
+| `salcap.py` | parsing and measurement library |
+| `analyze_capture.py` | one capture → measurements, expectation checks, JSON |
+| `compare_runs.py` | two JSON results → the before/after table for an MR |
+| `make_fixture.py` | synthesise a capture with a known waveform |
+| `test_analysis.py` | self-tests, no hardware needed |
+
+### Export raw, not analyzer output
+
+**Export the raw digital data as CSV.** Not the SPI analyzer's export. The
+tools decode SPI themselves, for two reasons: the analyzer export schema
+changes between Logic 2 releases, while the raw table has been a stable "time
+column, then one column per channel"; and decoding here means the *measured*
+mode can be reported independently of any mode an analyzer was configured
+with. Both the change-based and uniformly-sampled raw exports parse.
+
+Channels are matched by name (`SCLK`, `MOSI`, `MISO`, `CE0`, `CE1` — see
+§1.2), falling back to `D0`-style short names or bare indices. If you named
+the channels in Logic 2 the defaults just work.
+
+### What it measures
+
+- **Chip select activity** — edge count and assert windows. Zero edges is
+  reported explicitly as `DEAD - never moves`, which is the MR 1 baseline.
+- **Framing** — transactions are cut on CS when CS toggles, and on clock
+  bursts when it does not, so a capture with a dead chip select still decodes.
+  That is what lets MR 1 show the data was on the bus all along.
+- **CPOL** from the clock idle level, **CPHA** from whether the data line
+  moves on leading or trailing edges, and the resulting **mode**.
+- **Clock rate**, median period across the transaction.
+- **Decoded MOSI and MISO**, and whether they match — the MR 3 wire oracle.
+
+### Asserting rather than eyeballing
+
+Every `--expect-*` flag turns a measurement into a check. Exit status is 0 when
+all expectations hold, 1 when one fails, 2 when the capture cannot be read, so
+an agent can gate on it:
+
+```bash
+# MR 1: chip select dead on the baseline, data nonetheless present
+analyze_capture.py mr1-b0.csv --cs CE0 --expect-cs-edges 0 --expect-mosi aa55aa55
+# MR 1: chip select framing the transfer after the fix
+analyze_capture.py mr1-b1.csv --cs CE0 --expect-cs-edges 2 --expect-mosi aa55aa55
+# MR 2: mode 3 at 4 MHz was requested
+analyze_capture.py t2.csv --cs CE0 --expect-mode 3 --expect-hz 4e6
+# MR 3: the bytes were on the wire even where the driver returned garbage
+analyze_capture.py mr3-100k.csv --cs CE0 --expect-loopback --expect-hz 100e3 --hz-tolerance 0.2
+```
+
+Widen `--hz-tolerance` at low rates: the SSP divisor is an integer, so the
+achieved rate drifts from the requested one, and below roughly 25 kHz it
+clamps outright.
+
+### Producing the report
+
+```bash
+analyze_capture.py mr1-b0.csv --cs CE0 --json b0.json --quiet
+analyze_capture.py mr1-b1.csv --cs CE0 --json b1.json --quiet
+compare_runs.py b0.json b1.json --labels B0 B1 --title "MR 1 - chip select" \
+                --provenance $(cat b0-build.txt) $(cat b1-build.txt)
+```
+
+Which yields, from the synthetic fixtures:
+
+```
+| Measurement | B0 | B1 | |
+|---|---|---|---|
+| Chip select edges | 0 | 2 | **changed** |
+| Framing used | clock-burst | chip-select | **changed** |
+```
+
+Rows that are identical in both runs are hidden unless you pass `--all-rows`,
+so the table shows what the fix changed and nothing else.
+
+### Validate the pipeline before the bench
+
+```bash
+cd docs/testing/analysis && python3 test_analysis.py
+```
+
+45 checks over synthetic captures covering all four SPI modes, a dead chip
+select, the stale-mode scenarios from §6, the MR 3 loopback sweep, and
+malformed input. Run it before the bench session: if it passes, a surprising
+result on real hardware is evidence about the driver rather than about the
+analysis code.
+
+You can also dry-run the whole pipeline with no hardware at all:
+
+```bash
+make_fixture.py --out demo-b0.csv --mode 0 --hz 1e6 --bytes aa55aa55 --cs-dead
+make_fixture.py --out demo-b1.csv --mode 0 --hz 1e6 --bytes aa55aa55
+analyze_capture.py demo-b0.csv --cs CE0 --expect-cs-edges 0   # exit 0
+analyze_capture.py demo-b0.csv --cs CE0 --expect-cs-edges 2   # exit 1, names the mismatch
+```
+
+That is worth doing once before the target is even powered, so the first real
+capture is not also the first time this code has executed.
+
+---
+
+## 10. Final integration pass
 
 Build **B4** (B1 + MR 2 + MR 3) and re-run the MR 1 case, the MR 2 T1–T5
 sequence, and the MR 3 sweep. All must pass simultaneously. This catches any
@@ -637,29 +756,35 @@ went into the wrong switch case.
 
 ---
 
-## 10. Reporting
+## 11. Reporting
 
 Suggested artifact layout on the laptop:
 
 ```
 captures/
-  mr1/{B0,B1}/{ce0,ce1}.sal + .csv
-  mr2/{B1,B2}/t{1..5}.sal + .csv
-  mr3/{B1,B3}/{4M,1M,500k,200k,100k,50k,25k}.sal + .csv
+  mr1/{B0,B1}/{ce0,ce1}.sal + .csv + .json
+  mr2/{B1,B2}/t{1..5}.sal + .csv + .json
+  mr3/{B1,B3}/{4M,1M,500k,200k,100k,50k,25k}.sal + .csv + .json
   mr4/parsechangelog-{master,fix}.txt
 logs/
   <build>-srcversion.txt      # proof of which build produced each capture
   <build>-dmesg.txt
+  <build>-spi_case/*.txt      # the RX buffers, which are the MR 3 oracle
 ```
 
-Final report: one table per MR with the measured before/after values, each row
-citing the capture file it came from. Record `/etc/up-testbuild` (git SHA) and
-both `srcversion` values alongside every capture set — a capture without build
-provenance proves nothing.
+Keep the `.csv` (raw export), the `.json` (`analyze_capture.py --json`) and the
+`.sal` for each capture. The JSON is what `compare_runs.py` turns into the
+report tables; the CSV lets a reviewer re-derive it; the `.sal` lets them open
+the waveform.
+
+Final report: one table per MR, generated by `compare_runs.py` (§9), each row
+citing the capture it came from. Record `/etc/up-testbuild` (git SHA) and both
+`srcversion` values alongside every capture set and pass them to
+`--provenance` — a capture without build provenance proves nothing.
 
 ---
 
-## 11. Known risks
+## 12. Known risks
 
 1. **NULL pad registers.** Covered by the §4.2 pre-flight. If the gpiochip has
    fewer than 28 lines, MR 1 will oops at probe and needs a guard first.

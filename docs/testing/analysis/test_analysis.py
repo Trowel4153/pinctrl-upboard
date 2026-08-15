@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -199,6 +200,41 @@ def run(tmp: Path) -> None:
         expect("a short header is rejected", False, True)
     except RuntimeError as exc:
         expect("a short header is rejected", "channel map" in str(exc), True)
+
+    print("\nplot_capture renders a figure whose caption is the measurement")
+    import plot_capture
+
+    b0 = tmp / "fig_b0.csv"
+    b1 = tmp / "fig_b1.csv"
+    for path, dead in ((b0, True), (b1, False)):
+        rows = make_fixture.build(bytes.fromhex("aa55aa55"), mode=0, hz=1e6,
+                                  cs_dead=dead)
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(["Time [s]"] + make_fixture.CHANNELS)
+            for t, state in rows:
+                w.writerow([f"{t:.12f}"] + [state[c] for c in make_fixture.CHANNELS])
+
+    panels = [
+        plot_capture.Panel(str(b0), "SCLK", "MOSI", "MISO", "CE0",
+                           label="master", accent="before"),
+        plot_capture.Panel(str(b1), "SCLK", "MOSI", "MISO", "CE0",
+                           label="with fix", accent="after"),
+    ]
+    svg, height = plot_capture.build_svg(panels, 1000, title="t", footer="f")
+    expect("svg is well formed", svg.startswith("<svg") and svg.rstrip().endswith("</svg>"), True)
+    expect("caption reports the dead chip select",
+           any("never asserts" in line for line in panels[0].caption()), True)
+    expect("caption reports the working one",
+           any("CS edges 2" in line for line in panels[1].caption()), True)
+    expect("measured clock reaches the caption",
+           any("1.000 MHz" in line for line in panels[1].caption()), True)
+
+    ys = [float(m) for m in re.findall(r'\sy="([0-9.]+)"', svg)]
+    expect("every element sits inside the declared height", max(ys) < height, True)
+    expect("declared height matches the panels",
+           height, 34 + sum(p.height() + 10 for p in panels) + 20)
+    expect("no <style> block that GitHub would strip", "<style" in svg, False)
 
     print("\nmalformed input fails loudly")
     bad = tmp / "bad.csv"

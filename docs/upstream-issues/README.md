@@ -7,7 +7,7 @@ one per problem, each matching one of the MR branches in this repo.
 | Draft | Problem | Branch | Evidence today |
 |---|---|---|---|
 | [01](01-up4000-spi-chip-select.md) | SPI chip selects never driven on UP 4000 | `claude/spi-cs-apl03` | code + git history |
-| [02](02-spi-pxa2xx-short-transfer-mode-clock.md) | Transfers <32 B ignore mode and clock rate | `claude/spi-sscr-latch` | code |
+| [02](02-spi-pxa2xx-short-transfer-mode-clock.md) | Transfers <32 B ignore mode and clock rate | `claude/spi-sscr-latch` | code + Intel PXA docs |
 | [03](03-spi-pxa2xx-polled-rx-spin-count.md) | Polled Rx spin count returns stale data | `claude/spi-rx-timeout` | code |
 | [04](04-debian-changelog-trailers.md) | `debian/changelog` does not parse | `claude/debian-changelog` | **verified** |
 
@@ -31,6 +31,13 @@ about whether the reporter read the datasheet correctly.
 Draft 01 is the exception worth considering filing early — it names a specific
 commit that removed a specific `default:` case, which a maintainer can confirm
 from the history alone in about a minute.
+
+Draft 02 is the next strongest. Its CPOL/CPHA claim is now backed by Intel's
+own wording in the PXA27x Developer's Manual, quoted with page numbers in the
+draft, so that half does not rest on our reading of the driver. Its clock-rate
+claim does not have the same backing and the draft says so explicitly — see the
+caveat under "What the documentation says". Do not quietly promote the two to
+equal footing when filing.
 
 ## Figures
 

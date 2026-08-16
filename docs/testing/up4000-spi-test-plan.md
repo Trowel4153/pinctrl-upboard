@@ -527,9 +527,22 @@ exactly one assert/deassert pair and the full 8 bytes decoded.
 
 ## 6. MR 2 — mode and clock rate (`claude/spi-sscr-latch`)
 
-**Claim:** `up_spi_transfer()` writes SSCR0 with SSE already set, so SCR/DSS
-and SPO/SPH are never latched and short transfers run with whatever the
-*previous* transfer left behind.
+**Claim:** `up_spi_transfer()` reconfigures SSCR0 and SSCR1 without clearing
+SSE, so SPO/SPH (and DSS) never take effect and short transfers run with
+whatever the *previous* transfer left behind.
+
+The PXA27x Developer's Manual (280000-001) §8.5 p. 8-24 states this for SPO and
+SPH — CPOL and CPHA — in as many words: *"If the SPO, SPH, or SCFR bits need to
+be modified after the SSE bit is set; clear the SSE bit, make the
+modifications, and then again set the SSE bit."* The port stays enabled between
+messages here because `unprepare_transfer_hardware` is commented out in probe.
+See `docs/upstream-issues/02-*.md` for the full citations.
+
+**The mode half of this claim is documented; the clock-rate half is not.** SCR
+is absent from the manual's list of SSCR0 fields requiring SSE=0, and its own
+bit note describes a *live* frequency change. Record what T2 and T5 actually
+measure for the rate rather than treating a match as a failed reproduction —
+CPOL/CPHA is the assertion that must hold.
 
 Two things make this test work:
 
@@ -589,9 +602,15 @@ analyze_capture.py t2.csv --cs CE0 --expect-mode 3 --expect-hz 4e6
 > the measured clock idle level and rate are the only oracle — do not accept a
 > passing RX buffer, or a clean decode, as evidence.
 
-Pass criteria: on B1, T2 measures CPOL=0 and ~1 MHz while requesting mode 3 /
-4 MHz, and T5 measures CPOL=1 and ~4 MHz while requesting mode 0 / 1 MHz. On
-B2, every case matches its request.
+Pass criteria: on B1, T2 measures CPOL=0 while requesting mode 3, and T5
+measures CPOL=1 while requesting mode 0 — i.e. each inherits the *previous*
+case's mode. On B2, every case matches its request.
+
+Record the measured rate for every case, but judge B1 on the mode alone. If T2
+comes back mode 0 at 4 MHz, that is still the bug — SCR latched, SPO/SPH did
+not — and it is the outcome the documentation actually predicts. Only a case
+that matches its request in *both* mode and rate on B1 would contradict the
+report.
 
 ---
 

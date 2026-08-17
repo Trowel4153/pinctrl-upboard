@@ -1,0 +1,86 @@
+{
+  "source": "/mnt/c/Users/tvlowery/Downloads/202160817_spi_test/mr3/B3/500000/digital.csv",
+  "duration_s": 1.5040512,
+  "edge_counts": {
+    "MOSI": 40,
+    "SCLK": 128,
+    "CE0": 2,
+    "CE1": 0
+  },
+  "cs_channel": "CE0",
+  "cs_edges": 2,
+  "cs_asserted": true,
+  "cs_windows": [
+    {
+      "start_s": 1.00099523,
+      "end_s": 1.00125557,
+      "duration_s": 0.00026034000000008106
+    }
+  ],
+  "framing": "chip-select",
+  "transactions": [
+    {
+      "start_s": 1.00099523,
+      "end_s": 1.00125557,
+      "clock": {
+        "edges": 128,
+        "cycles": 63,
+        "idle_level_before": 0,
+        "idle_level_after": 0,
+        "idle_consistent": true,
+        "cpol_measured": 0,
+        "period_s": 2.0000000000575113e-06,
+        "freq_hz": 499999.9999856222,
+        "period_jitter_s": 3.953000000023188e-05
+      },
+      "phase": {
+        "cpha_measured": 0,
+        "confidence": 0.8,
+        "samples": 40
+      },
+      "mode_measured": 0,
+      "decoded_with_mode": 0,
+      "mosi": {
+        "bits": 64,
+        "words": [
+          222,
+          173,
+          190,
+          239,
+          222,
+          173,
+          190,
+          239
+        ],
+        "hex": "deadbeefdeadbeef",
+        "leftover_bits": 0
+      },
+      "miso": {
+        "bits": 64,
+        "words": [
+          222,
+          173,
+          190,
+          239,
+          222,
+          173,
+          190,
+          239
+        ],
+        "hex": "deadbeefdeadbeef",
+        "leftover_bits": 0
+      },
+      "loopback_match": true
+    }
+  ],
+  "summary": {
+    "transactions": 1,
+    "mode_measured": 0,
+    "cpol_measured": 0,
+    "cpha_measured": 0,
+    "freq_hz": 499999.9999856222,
+    "mosi_hex": "deadbeefdeadbeef",
+    "miso_hex": "deadbeefdeadbeef",
+    "loopback_match": true
+  }
+}

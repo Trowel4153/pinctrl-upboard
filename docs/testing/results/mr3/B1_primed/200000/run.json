@@ -1,0 +1,34 @@
+{
+  "label": "mr3-b1p-200000",
+  "channels": {
+    "MOSI": 0,
+    "SCLK": 2,
+    "CE0": 4,
+    "CE1": 5
+  },
+  "csv_columns": [
+    "MOSI",
+    "SCLK",
+    "CE0",
+    "CE1"
+  ],
+  "capture_csv": "/mnt/c/Users/tvlowery/Downloads/202160817_spi_test/mr3/B1_primed/200000/digital.csv",
+  "captured_at": "2026-08-17T17:51:19.198598+00:00",
+  "build_id": "82ba569",
+  "kernel": "7.0.0-22-generic",
+  "srcversion": "263D864EB5D11196F75F830",
+  "spi_srcversion": "E759AE35E5DC9E50BE5AB76",
+  "target": {
+    "cmd": "sudo python3 ~/spi_case.py --bus 1 --dev 0 --mode 0 --speed 200000 --len 8 --pattern deadbeef --label mr3-200000",
+    "exit": 0,
+    "stdout": "label=mr3-200000 bus=1.0 mode=0 speed=200000 len=8 path=polled\ntx=deadbeefdeadbeef\nrx=deadbeefdeadbeef\nresult=MATCH",
+    "stderr": ""
+  },
+  "logic": {
+    "app_version": "2.4.45",
+    "api_version": "Version(major=1, minor=0, patch=0)",
+    "sample_rate": 100000000,
+    "threshold_volts": 1.2,
+    "mode": "manual"
+  }
+}

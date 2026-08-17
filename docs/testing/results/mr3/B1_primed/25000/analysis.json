@@ -1,0 +1,68 @@
+{
+  "source": "/mnt/c/Users/tvlowery/Downloads/202160817_spi_test/mr3/B1_primed/25000/digital.csv",
+  "duration_s": 1.53747456,
+  "edge_counts": {
+    "MOSI": 34,
+    "SCLK": 128,
+    "CE0": 2,
+    "CE1": 0
+  },
+  "cs_channel": "CE0",
+  "cs_edges": 2,
+  "cs_asserted": true,
+  "cs_windows": [
+    {
+      "start_s": 1.01435501,
+      "end_s": 1.01447786,
+      "duration_s": 0.00012284999999989665
+    }
+  ],
+  "framing": "chip-select",
+  "transactions": [
+    {
+      "start_s": 1.01435501,
+      "end_s": 1.01447786,
+      "clock": {
+        "edges": 1,
+        "cycles": 0,
+        "idle_level_before": 0,
+        "idle_level_after": 1,
+        "idle_consistent": false,
+        "cpol_measured": 0,
+        "period_s": null,
+        "freq_hz": null,
+        "period_jitter_s": null
+      },
+      "phase": {
+        "cpha_measured": 1,
+        "confidence": 1.0,
+        "samples": 1
+      },
+      "mode_measured": 1,
+      "decoded_with_mode": 1,
+      "mosi": {
+        "bits": 0,
+        "words": [],
+        "hex": "",
+        "leftover_bits": 0
+      },
+      "miso": {
+        "bits": 0,
+        "words": [],
+        "hex": "",
+        "leftover_bits": 0
+      },
+      "loopback_match": true
+    }
+  ],
+  "summary": {
+    "transactions": 1,
+    "mode_measured": 1,
+    "cpol_measured": 0,
+    "cpha_measured": 1,
+    "freq_hz": null,
+    "mosi_hex": "",
+    "miso_hex": "",
+    "loopback_match": true
+  }
+}

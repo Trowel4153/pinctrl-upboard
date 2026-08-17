@@ -182,8 +182,16 @@ divisor happens to take and the `SPO`/`SPH` fields do not.
 T2 and T5 are the stateful demonstration for the clock alone: the same request
 produces different wire behaviour depending only on what ran before it.
 
-<!-- Fill in before filing: attach figs/mr2-mode-and-clock.svg from the
-     results directory (T2, master vs patched).
+<!-- Fill in before filing: attach two figures from the results directory --
+     figs/mr2-mode-and-clock.svg (T2 whole transfer, master vs patched) and
+     figs/mr2-mode-zoom.svg (the first six clock cycles of the same pair).
+
+The zoom is the one that carries the mode argument: at 4 MHz a whole 8-byte
+transfer is 64 cycles across the page and no reader can see which edge the data
+changes on.  In the zoomed pair the baseline clock rests low and returns low
+while the patched one rises to its idle level before the burst and clocks from
+high.  The two panels of the whole-transfer figure are fitted separately
+because the rates differ 4x -- read the rate off the axis, not the density.
 
 One methodology note worth carrying into the issue if anyone asks how CPOL was
 read: this controller parks SCLK low between messages, so a mode-3 transfer

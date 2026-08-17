@@ -73,8 +73,9 @@ So this is not only "the driver gives up reading too early". The frame the
 driver emits is invalid.
 
 After the patch every speed down to 25 kHz returns the full payload and the
-clock stops inside the frame (0 edges after CS on all 14 fixed-build captures,
-against non-zero on exactly the 3 failing baseline captures).
+clock stops inside the frame. Across all 28 captures in the sweep the two
+oracles agree exactly: zero clock edges past the frame on each of the 25 that
+returned correct data, non-zero on each of the 3 that did not.
 
 <!-- Fill in before filing: attach figs/mr3-rx-loopback.svg from the results
      directory, and quote the target's rx= line from run.json beside it.

@@ -146,13 +146,32 @@ def collect_provenance(target: str | None, ssh_opts: str) -> dict:
     prov = {"captured_at": datetime.now(timezone.utc).isoformat()}
     if not target:
         return prov
+    # srcversion comes from /sys/module, never from modinfo.  modinfo reports
+    # what is installed under /lib/modules, which is not necessarily what is
+    # running; sysfs reports the module that is actually loaded.  And the
+    # module under test is the out-of-tree spi-pxa2xx-up, not the in-tree
+    # spi-pxa2xx-platform -- reading the wrong one is silent, because it
+    # returns a perfectly good srcversion that simply never changes between
+    # builds.  The first UP 4000 run recorded the stock value 49 times over
+    # and the report claimed four distinct builds on the strength of it.
     probes = {
         "build_id": "cat /etc/up-testbuild 2>/dev/null",
         "kernel": "uname -r",
-        "srcversion": "modinfo -F srcversion pinctrl-upboard 2>/dev/null",
-        "spi_srcversion": "modinfo -F srcversion spi-pxa2xx-platform 2>/dev/null",
+        "srcversion": "cat /sys/module/pinctrl_upboard/srcversion 2>/dev/null",
+        "spi_module": (
+            "for m in spi_pxa2xx_up spi_pxa2xx_platform; do "
+            "[ -e /sys/module/$m/srcversion ] && echo $m; done"
+        ),
+        "spi_srcversion": (
+            "cat /sys/module/spi_pxa2xx_up/srcversion 2>/dev/null || "
+            "cat /sys/module/spi_pxa2xx_platform/srcversion 2>/dev/null"
+        ),
     }
     for key, remote in probes.items():
+        # A field that cannot be read is recorded as null rather than dropped:
+        # a missing key reads as "not collected", which is how a provenance
+        # claim nobody could check got into a report.
+        prov[key] = None
         try:
             r = run_local(ssh_cmd(target, ssh_opts, remote), timeout=20)
             value = r.stdout.strip()

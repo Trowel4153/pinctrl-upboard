@@ -39,6 +39,8 @@ def build(
     miso_data: bytes | None = None,
     lead_s: float = 20e-6,
     idle_high_cs: int = 1,
+    park_low: bool = False,
+    cs_release_after_bits: int | None = None,
 ) -> list[tuple[float, dict[str, int]]]:
     cpol = mode >> 1
     cpha = mode & 1
@@ -49,7 +51,7 @@ def build(
     if len(rx) != len(data):
         raise ValueError("MISO byte count must match MOSI byte count")
 
-    state = {"SCLK": cpol, "MOSI": 0, "MISO": 0, "CE0": 1, "CE1": 1}
+    state = {"SCLK": 0 if park_low else cpol, "MOSI": 0, "MISO": 0, "CE0": 1, "CE1": 1}
     rows: list[tuple[float, dict[str, int]]] = [(0.0, dict(state))]
 
     def emit(t: float, **changes) -> None:
@@ -61,10 +63,22 @@ def build(
         emit(t, CE0=0)
     t += period  # setup time between CS assert and first clock
 
+    # A controller that parks SCLK low has to raise it to the CPOL=1 idle level
+    # before it can clock, and the rise lands inside the chip-select window.
+    # It is not a clock edge, and an analyser that counts it as one reads CPOL
+    # inverted and shifts every decoded byte by a bit.
+    if park_low and cpol == 1:
+        emit(t, SCLK=1)
+        t += period
+
     tx_bits = [(b >> (7 - i)) & 1 for b in data for i in range(8)]
     rx_bits = [(b >> (7 - i)) & 1 for b in rx for i in range(8)]
 
-    for tb, rb in zip(tx_bits, rx_bits):
+    for n, (tb, rb) in enumerate(zip(tx_bits, rx_bits)):
+        # Chip select released while the SSP keeps shifting: the MR 3 defect,
+        # where a slave sees the frame close mid-word.
+        if cs_release_after_bits is not None and n == cs_release_after_bits:
+            emit(t, CE0=idle_high_cs)
         if cpha == 0:
             # Data is launched before the leading edge and sampled on it.
             emit(t, MOSI=tb, MISO=rb)
@@ -83,8 +97,10 @@ def build(
         t += period
 
     t += period
-    if not cs_dead:
+    if not cs_dead and cs_release_after_bits is None:
         emit(t, CE0=idle_high_cs)
+    if park_low and cpol == 1:
+        emit(t + period, SCLK=0)
     emit(t + lead_s, MOSI=0, MISO=0)
     return rows
 
@@ -104,6 +120,13 @@ def main() -> int:
                     help="chip select never toggles (the MR 1 baseline defect)")
     ap.add_argument("--no-loopback", action="store_true",
                     help="MISO stays idle instead of mirroring MOSI")
+    ap.add_argument("--park-low", action="store_true",
+                    help="SCLK rests low between messages, so a CPOL=1 transfer "
+                         "opens with a setup rise inside the CS window (what the "
+                         "UP 4000 actually does)")
+    ap.add_argument("--cs-release-after-bits", type=int, default=None,
+                    help="release chip select after this many bits while the clock "
+                         "keeps running (the MR 3 defect)")
     args = ap.parse_args()
 
     data = bytes.fromhex(args.bytes)
@@ -115,6 +138,8 @@ def main() -> int:
         cs_dead=args.cs_dead,
         loopback=not args.no_loopback,
         miso_data=miso,
+        park_low=args.park_low,
+        cs_release_after_bits=args.cs_release_after_bits,
     )
 
     with open(args.out, "w", newline="", encoding="utf-8") as fh:

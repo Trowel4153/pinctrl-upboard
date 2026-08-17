@@ -1,5 +1,5 @@
 {
-  "source": "/mnt/c/Users/tvlowery/Downloads/202160817_spi_test/mr2/B1/t2/digital.csv",
+  "source": "mr2/B1/t2/digital.csv",
   "duration_s": 1.5040512,
   "edge_counts": {
     "MOSI": 64,
@@ -24,15 +24,20 @@
       "end_s": 0.98643223,
       "clock": {
         "edges": 128,
+        "setup_edges_trimmed": 0,
+        "teardown_edges_trimmed": 0,
         "cycles": 63,
         "idle_level_before": 0,
         "idle_level_after": 0,
         "idle_consistent": true,
         "cpol_measured": 0,
+        "cpol_source": "trailing-idle",
         "period_s": 1.0000000000287557e-06,
         "freq_hz": 999999.9999712444,
         "period_jitter_s": 5.744000000007521e-05
       },
+      "clock_edges_after_frame": 0,
+      "frame_truncated": false,
       "phase": {
         "cpha_measured": 0,
         "confidence": 0.938,
@@ -70,7 +75,8 @@
         "hex": "aa55aa55aa55aa55",
         "leftover_bits": 0
       },
-      "loopback_match": true
+      "loopback_shared_channel": true,
+      "loopback_match": null
     }
   ],
   "summary": {
@@ -78,9 +84,14 @@
     "mode_measured": 0,
     "cpol_measured": 0,
     "cpha_measured": 0,
+    "idle_level_after": 0,
+    "setup_edges_trimmed": 0,
     "freq_hz": 999999.9999712444,
     "mosi_hex": "aa55aa55aa55aa55",
     "miso_hex": "aa55aa55aa55aa55",
-    "loopback_match": true
+    "loopback_match": null,
+    "loopback_shared_channel": true,
+    "clock_edges_after_frame": 0,
+    "frame_truncated": false
   }
 }

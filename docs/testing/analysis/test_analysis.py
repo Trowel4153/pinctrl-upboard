@@ -77,8 +77,27 @@ def run(tmp: Path) -> None:
     r = analyse(cap, cs="CE0")
     expect("cs edges", r["cs_edges"], 0)
     expect("cs reported dead", r["cs_asserted"], False)
+    expect("undriven-high line is distinguished", r["cs_constant_level"], 1)
     expect("falls back to clock-burst framing", r["framing"], "clock-burst")
     expect("data still decodes off the wire", r["summary"]["mosi_hex"], "aa55aa55")
+
+    print("\nMR 1 baseline as measured on the UP 4000: chip select stuck low")
+    # Both selects sat at a constant 0 for the whole capture.  Active low, that
+    # is not a select that failed to fire but one that never releases, so every
+    # device on the bus is addressed at once.  A bare edge count cannot tell
+    # the two apart, which is why the level is recorded.
+    rows = make_fixture.build(bytes.fromhex("aa55aa55"), mode=0, hz=1e6, cs_dead=True)
+    stuck = tmp / "mr1_stuck.csv"
+    with open(stuck, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["Time [s]"] + make_fixture.CHANNELS)
+        for t, state in rows:
+            w.writerow([f"{t:.12f}"] + [0 if c == "CE0" else state[c]
+                                        for c in make_fixture.CHANNELS])
+    r = analyse(salcap.Capture.from_csv(str(stuck)), cs="CE0")
+    expect("still no edges", r["cs_edges"], 0)
+    expect("stuck-low line is distinguished", r["cs_constant_level"], 0)
+    expect("data still decodes", r["summary"]["mosi_hex"], "aa55aa55")
 
     print("\nMR 1 fixed: chip select frames the transfer")
     cap = fixture(tmp, "mr1_b1", mode=0, hz=1e6)
@@ -129,6 +148,48 @@ def run(tmp: Path) -> None:
            set(decodes.values()), {"aa55aa55"})
     expect("but the measured mode is unambiguous",
            analyse(cap, cs="CE0")["summary"]["mode_measured"], 0)
+
+    print("\na parked-low SCLK does not fake a mode-0 reading")
+    # The UP 4000 rests SCLK low between messages, so a CPOL=1 transfer opens
+    # with a setup rise inside the chip-select window.  Counting that rise as a
+    # clock edge is what made the first on-target run report mode 0 and a
+    # payload of 552ad52a for every mode-3 transfer.
+    cap = fixture(tmp, "mr2_park", mode=3, hz=4e6, payload="aa55aa55aa55aa55",
+                  park_low=True)
+    r = analyse(cap, cs="CE0")
+    s = r["summary"]
+    expect("setup rise is trimmed, not counted", s["setup_edges_trimmed"], 1)
+    expect("cpol survives the parked line", s["cpol_measured"], 1)
+    expect("mode survives the parked line", s["mode_measured"], 3)
+    expect("payload is not shifted a bit", s["mosi_hex"], "aa55aa55aa55aa55")
+    expect("edge count excludes the setup rise",
+           r["transactions"][0]["clock"]["edges"], 128)
+
+    print("\nMR 3: chip select released while the SSP is still shifting")
+    cap = fixture(tmp, "mr3_torn", mode=0, hz=100e3, payload="deadbeef",
+                  cs_release_after_bits=12)
+    r = analyse(cap, cs="CE0")
+    s = r["summary"]
+    expect("frame reported as torn", s["frame_truncated"], True)
+    expect("clock edges counted past the frame",
+           s["clock_edges_after_frame"], 40)
+
+    print("\na clean frame reports no overrun")
+    cap = fixture(tmp, "mr3_clean", mode=0, hz=100e3, payload="deadbeef")
+    expect("no overrun on a whole frame",
+           analyse(cap, cs="CE0")["summary"]["frame_truncated"], False)
+    cap = fixture(tmp, "mr3_clean_park", mode=3, hz=25e3, payload="deadbeef",
+                  park_low=True)
+    expect("parking the line is not an overrun",
+           analyse(cap, cs="CE0")["summary"]["frame_truncated"], False)
+
+    print("\na shared loopback node is not evidence of a loopback")
+    # Jumpering pins 19 and 21 makes MOSI and MISO one node and one CSV column,
+    # so comparing them proves nothing.  Say so rather than reporting a match.
+    cap = fixture(tmp, "shared", mode=0, hz=1e6, payload="aa55aa55")
+    r = salcap.analyse(cap, sclk="SCLK", mosi="MOSI", miso="MOSI", cs="CE0")
+    expect("shared channel flagged", r["summary"]["loopback_shared_channel"], True)
+    expect("no tautological match reported", r["summary"]["loopback_match"], None)
 
     print("\nMR 3: loopback on the wire at low clock rates")
     for hz in (4e6, 1e6, 100e3, 25e3):

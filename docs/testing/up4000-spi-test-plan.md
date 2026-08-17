@@ -547,13 +547,26 @@ reloading.** Capture each case separately.
 | T1 | mode 0, 1 MHz | 8 | polled | mode 0, 1 MHz | mode 0, 1 MHz |
 | T2 | **mode 3, 4 MHz** | 8 | polled | **mode 0, 1 MHz** ← stale | mode 3, 4 MHz |
 | T3 | mode 3, 4 MHz | 40 | long | mode 3, 4 MHz | mode 3, 4 MHz |
-| T4 | mode 3, 4 MHz | 8 | polled | mode 3, 4 MHz — T3 re-latched it | mode 3, 4 MHz |
-| T5 | **mode 0, 1 MHz** | 8 | polled | **mode 3, 4 MHz** ← stale again | mode 0, 1 MHz |
+| T4 | mode 3, 4 MHz | 8 | polled | **mode 0**, 4 MHz — rate re-latched by T3, polarity not | mode 3, 4 MHz |
+| T5 | **mode 0, 1 MHz** | 8 | polled | mode 0, **4 MHz** ← stale rate | mode 0, 1 MHz |
 
-T2 and T5 are the demonstration: the *same request* produces *different wire
-behaviour* on B1 depending only on what ran before it. T3 is the control that
-proves the long path was always correct, so the defect is specific to the
-polled path. T1 and T4 should look identical on both builds.
+The B1 column is what the hardware actually did, not a prediction — see
+`results/REPORT.md`. An earlier draft of this table predicted that mode would
+be *inherited* on B1 the way the clock rate is, so that T4 would show mode 3
+and T5 would show CPOL=1. It does not work that way. On B1 the polled path
+never puts the requested polarity on the wire **at all**: T3 is a long-path
+transfer that genuinely leaves CPOL=1, and T4 immediately after it — same
+requested mode, polled — comes back CPOL=0 while keeping T3's clock divisor.
+
+That asymmetry is the sharpest single observation in the whole run, and it is
+worth aiming the test at deliberately: the rate half of a request survives on a
+running port and the polarity half does not, which is what Intel's text
+predicts for `SSCR1` written with `SSE` set.
+
+T2 and T5 are the stateful demonstration for the clock: the *same request*
+produces *different wire behaviour* on B1 depending only on what ran before it.
+T3 is the control that proves the long path was always correct, so the defect is
+specific to the polled path.
 
 ```bash
 python3 ~/spi_case.py --mode 0 --speed 1000000 --len 8  --label t1
@@ -565,8 +578,14 @@ python3 ~/spi_case.py --mode 0 --speed 1000000 --len 8  --label t5
 
 Measurements per capture, from the exported raw digital CSV:
 
-- **CPOL** — SCLK level while CE0 is deasserted. Mode 0 idles **low**, mode 3
-  idles **high**. This is the single clearest before/after signal.
+- **CPOL** — SCLK level **after the last clock edge of the frame**. Mode 0
+  idles low, mode 3 idles high. This is the single clearest before/after signal,
+  but read it from the *trailing* idle, never the leading one. The UP 4000
+  parks SCLK low between messages, so a mode-3 transfer opens with a setup rise
+  inside the CS window; take that rise for a clock edge and you will read CPOL
+  inverted and shift every decoded byte by a bit. `analyze_capture.py` trims
+  setup and teardown transitions and reports `setup_edges_trimmed` when it
+  does. A 64-bit transfer showing 129 SCLK edges instead of 128 is the tell.
 - **Clock rate** — median SCLK period across the transfer. Expect ~1 MHz vs
   ~4 MHz. Report the measured value; the SSP divisor is integer so the
   achieved rate will be close but not exact.
@@ -589,9 +608,14 @@ analyze_capture.py t2.csv --cs CE0 --expect-mode 3 --expect-hz 4e6
 > the measured clock idle level and rate are the only oracle — do not accept a
 > passing RX buffer, or a clean decode, as evidence.
 
-Pass criteria: on B1, T2 measures CPOL=0 and ~1 MHz while requesting mode 3 /
-4 MHz, and T5 measures CPOL=1 and ~4 MHz while requesting mode 0 / 1 MHz. On
-B2, every case matches its request.
+Pass criteria: on B1, T2 measures mode 0 at ~1 MHz while requesting mode 3 at
+4 MHz; T4 measures **mode 0** at ~4 MHz while requesting mode 3 at 4 MHz; and
+T5 measures ~4 MHz while requesting 1 MHz. On B2, every case matches its
+request in **both** mode and rate.
+
+Record mode and rate for every case and judge them separately — they fail
+independently on B1, which is the point. A case that matches its request in
+both on B1 is the only outcome that would contradict the report.
 
 ---
 
@@ -603,7 +627,23 @@ exactly as the per-word time grows. At 100 kHz it allows 100 MMIO reads
 the wire. When it expires the driver reads SSDR anyway and returns stale data
 as success.
 
-**The loopback jumper is the oracle here.** RX must equal TX.
+**Two oracles, and the second one is better.**
+
+1. The loopback round trip: the **target's** `rx=` must equal `tx=`. Note that
+   this has to come from `spi_case.py` on the target, not from the analyser —
+   with pins 19 and 21 jumpered, MOSI and MISO are one probed node, so an
+   analyser comparing them is comparing a column with itself.
+2. **Chip select must still be asserted when the last clock edge lands.** On the
+   buggy build it is not: the controller releases CS while the SSP is still
+   shifting, so a slave sees the frame torn mid-word. `analyze_capture.py`
+   reports this as `clock_edges_after_frame` / `frame_truncated`. Measured on
+   B1: 49 of 128 edges arrive after CS releases at 100 kHz, 113 at 50 kHz, and
+   127 at 25 kHz — at 25 kHz the frame closes before the second clock edge.
+
+Oracle 2 is the one to lead with. It needs no jumper, it is visible to any
+slave on the bus rather than only to a loopback, and on the run in
+`results/` it agreed with the target's verdict on all 24 captures: non-zero for
+exactly the three that failed, zero for the twenty-one that passed.
 
 Sweep, on B1 then B3:
 
@@ -627,10 +667,19 @@ The exact break-even depends on MMIO read latency on this SoC, so the sweep
 *finds* the threshold rather than asserting one. What matters is that a
 threshold exists on B1 and does not on B3.
 
-Corroborate with the capture: at every speed, **MOSI and MISO carry identical
-correct bytes on the wire**. That is the money shot — the data was there, and
-the old driver returned garbage anyway. Export the analyser CSV for the
-100 kHz case on both builds and put them side by side.
+Corroborate with the capture — but not by comparing MOSI against MISO, which
+on this bench is one column compared with itself. The capture's contribution is
+`frame_truncated`: the clock keeps running after CS releases on exactly the
+speeds that fail. Export the CSV for the 100 kHz case on both builds and put
+them side by side; the baseline panel shows the burst continuing past the
+chip-select edge.
+
+**Prime each speed** on any build without the MR2 fix (B1, B3). A polled
+transfer there inherits the previous transfer's clock divisor, so an unprimed
+sweep runs every case at ~3.846 MHz and the low speeds are never exercised —
+the bug hides completely. Precede each case with a ≥32-byte transfer at the
+same speed, which takes the long path and latches the divisor. B4 has MR2 and
+needs no priming; that is one of the reasons to test the combination.
 
 Note the SSP divisor floor. SCR is 12 bits on a ~100 MHz SSP clock, so
 requests below roughly 25 kHz clamp. Measure the achieved rate from the
@@ -646,6 +695,12 @@ dmesg -w | grep -i "timeout waiting for Rx"     # in a second SSH session
 `spi_case.py` exits **2** and prints `errno=110` (`ETIMEDOUT`) if the ioctl
 fails. On B3 you should see either exit 0 with MATCH, or exit 2 — never exit 1
 (MISMATCH). Exit 1 on B3 would mean the fix is incomplete.
+
+On the run in `results/`, exit 2 never occurred: the widened bound was
+sufficient at every speed down to 25 kHz, so the timeout path was not exercised
+on hardware. Say that plainly when filing draft 03, because it bears directly
+on the open question there about whether failing with `-ETIMEDOUT` is the
+wanted behaviour — nothing in this run demonstrates the timeout firing.
 
 ---
 

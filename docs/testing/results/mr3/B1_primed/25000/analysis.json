@@ -1,5 +1,5 @@
 {
-  "source": "/mnt/c/Users/tvlowery/Downloads/202160817_spi_test/mr3/B1_primed/25000/digital.csv",
+  "source": "mr3/B1_primed/25000/digital.csv",
   "duration_s": 1.53747456,
   "edge_counts": {
     "MOSI": 34,
@@ -24,22 +24,27 @@
       "end_s": 1.01447786,
       "clock": {
         "edges": 1,
+        "setup_edges_trimmed": 0,
+        "teardown_edges_trimmed": 0,
         "cycles": 0,
         "idle_level_before": 0,
         "idle_level_after": 1,
         "idle_consistent": false,
-        "cpol_measured": 0,
+        "cpol_measured": 1,
+        "cpol_source": "trailing-idle",
         "period_s": null,
         "freq_hz": null,
         "period_jitter_s": null
       },
+      "clock_edges_after_frame": 127,
+      "frame_truncated": true,
       "phase": {
-        "cpha_measured": 1,
+        "cpha_measured": 0,
         "confidence": 1.0,
         "samples": 1
       },
-      "mode_measured": 1,
-      "decoded_with_mode": 1,
+      "mode_measured": 2,
+      "decoded_with_mode": 2,
       "mosi": {
         "bits": 0,
         "words": [],
@@ -52,17 +57,23 @@
         "hex": "",
         "leftover_bits": 0
       },
-      "loopback_match": true
+      "loopback_shared_channel": true,
+      "loopback_match": null
     }
   ],
   "summary": {
     "transactions": 1,
-    "mode_measured": 1,
-    "cpol_measured": 0,
-    "cpha_measured": 1,
+    "mode_measured": 2,
+    "cpol_measured": 1,
+    "cpha_measured": 0,
+    "idle_level_after": 1,
+    "setup_edges_trimmed": 0,
     "freq_hz": null,
     "mosi_hex": "",
     "miso_hex": "",
-    "loopback_match": true
+    "loopback_match": null,
+    "loopback_shared_channel": true,
+    "clock_edges_after_frame": 127,
+    "frame_truncated": true
   }
 }

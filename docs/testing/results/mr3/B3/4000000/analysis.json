@@ -1,5 +1,5 @@
 {
-  "source": "/mnt/c/Users/tvlowery/Downloads/202160817_spi_test/mr3/B3/4000000/digital.csv",
+  "source": "mr3/B3/4000000/digital.csv",
   "duration_s": 1.5040512,
   "edge_counts": {
     "MOSI": 40,
@@ -24,15 +24,20 @@
       "end_s": 1.00279187,
       "clock": {
         "edges": 128,
+        "setup_edges_trimmed": 0,
+        "teardown_edges_trimmed": 0,
         "cycles": 63,
         "idle_level_before": 0,
         "idle_level_after": 0,
         "idle_consistent": true,
         "cpol_measured": 0,
+        "cpol_source": "trailing-idle",
         "period_s": 2.599999999741698e-07,
         "freq_hz": 3846153.84653595,
         "period_jitter_s": 2.4200000001695088e-06
       },
+      "clock_edges_after_frame": 0,
+      "frame_truncated": false,
       "phase": {
         "cpha_measured": 0,
         "confidence": 0.8,
@@ -70,7 +75,8 @@
         "hex": "deadbeefdeadbeef",
         "leftover_bits": 0
       },
-      "loopback_match": true
+      "loopback_shared_channel": true,
+      "loopback_match": null
     }
   ],
   "summary": {
@@ -78,9 +84,14 @@
     "mode_measured": 0,
     "cpol_measured": 0,
     "cpha_measured": 0,
+    "idle_level_after": 0,
+    "setup_edges_trimmed": 0,
     "freq_hz": 3846153.84653595,
     "mosi_hex": "deadbeefdeadbeef",
     "miso_hex": "deadbeefdeadbeef",
-    "loopback_match": true
+    "loopback_match": null,
+    "loopback_shared_channel": true,
+    "clock_edges_after_frame": 0,
+    "frame_truncated": false
   }
 }

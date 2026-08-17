@@ -132,7 +132,14 @@ class Panel:
         )
         self.label = label or os.path.basename(path)
         self.accent = accent
-        self.channels = [c for c in (sclk, mosi, miso, cs) if c]
+        # Jumpered MOSI/MISO resolve to one column; drawing it twice under two
+        # labels invents a second trace that was never probed.
+        self.channels = []
+        for c in (sclk, mosi, miso, cs):
+            if c and self.cap.resolve(c) not in {
+                self.cap.resolve(x) for x in self.channels
+            }:
+                self.channels.append(c)
         self.cs = cs
 
     def auto_window(self, pad=0.25):
@@ -146,21 +153,43 @@ class Panel:
     def caption(self) -> list[str]:
         s = self.result["summary"]
         mode = s.get("mode_measured")
-        bits = [
-            f"mode {mode if mode is not None else '?'}"
-            f" (cpol={s.get('cpol_measured')} cpha={s.get('cpha_measured')})",
-            fmt_hz(s.get("freq_hz")),
-        ]
+        if s.get("frame_truncated"):
+            # CPOL is read from the level after the last clock edge in the
+            # frame.  When the frame closed early that level belongs to a
+            # transfer still in progress, so there is no idle level to read.
+            bits = ["mode not measurable (frame torn)"]
+        else:
+            bits = [
+                f"mode {mode if mode is not None else '?'}"
+                f" (cpol={s.get('cpol_measured')} cpha={s.get('cpha_measured')})"
+            ]
+        bits.append(fmt_hz(s.get("freq_hz")))
         if "cs_edges" in self.result:
             n = self.result["cs_edges"]
-            bits.append(f"CS edges {n}" + (" — never asserts" if n == 0 else ""))
+            note = ""
+            if n == 0:
+                lvl = self.result.get("cs_constant_level")
+                note = (
+                    " — stuck asserted (low)" if lvl == 0
+                    else " — never asserts (high)" if lvl == 1
+                    else " — never moves"
+                )
+            bits.append(f"CS edges {n}{note}")
+        if s.get("frame_truncated"):
+            bits.append(
+                f"{s['clock_edges_after_frame']} clock edges AFTER CS released"
+            )
         line2 = []
         if s.get("mosi_hex"):
             line2.append(f"MOSI {s['mosi_hex']}")
-        if s.get("miso_hex"):
+        # A shared MOSI/MISO node decodes to one column, so printing both would
+        # show the same bytes twice and read as corroboration.
+        if s.get("miso_hex") and not s.get("loopback_shared_channel"):
             line2.append(f"MISO {s['miso_hex']}")
         if s.get("loopback_match") is not None:
             line2.append("loopback " + ("match" if s["loopback_match"] else "MISMATCH"))
+        elif s.get("loopback_shared_channel"):
+            line2.append("MOSI/MISO jumpered — one probed node")
         out = ["   ".join(bits)]
         if line2:
             out.append("   ".join(line2))

@@ -197,9 +197,54 @@ def clock_bursts(edge_times: list[float], gap_factor: float = 4.0) -> list[Windo
 _SAMPLE_EDGE = {(0, 0): 1, (0, 1): 0, (1, 0): 0, (1, 1): 1}
 
 
-def clock_stats(cap: Capture, sclk: str, window: Window) -> dict:
-    """Idle level, period and frequency for the clock inside one window."""
+def transaction_edges(
+    cap: Capture, sclk: str, window: Window, factor: float = 1.5
+) -> tuple[list[tuple[float, int]], int, int]:
+    """Clock edges inside `window`, minus the setup and teardown transitions.
+
+    A controller that parks SCLK low between messages has to raise the line to
+    the idle level before it can clock a CPOL=1 transfer, and drop it again
+    afterwards.  Those two transitions land inside the chip-select window but
+    are not clock edges: they sit a long way from the burst, where a real edge
+    is one half-period from its neighbour.
+
+    Counting them costs two separate measurements.  The level ahead of the
+    first edge reads as the parked level rather than the idle level, so CPOL
+    comes out inverted; and the extra sampling edge shifts every decoded byte
+    by one bit (0xAA55 decodes as 0x552A).  Both were visible in the first UP
+    4000 run, where mode-3 transfers reported `cpol=0` and payload `552ad52a`.
+
+    An edge is called setup/teardown when its gap to the burst exceeds
+    `factor` times the median gap.  Returns (kept, n_leading, n_trailing).
+    """
     edges = [(t, lv) for t, lv in cap.edges(sclk) if window.contains(t)]
+    if len(edges) < 4:
+        return edges, 0, 0
+    times = [t for t, _ in edges]
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    typical = statistics.median(gaps)
+    if typical <= 0:
+        return edges, 0, 0
+    limit = typical * factor
+    lead = 1 if gaps[0] > limit else 0
+    tail = 1 if gaps[-1] > limit else 0
+    kept = edges[lead:len(edges) - tail]
+    if len(kept) < 2:
+        return edges, 0, 0
+    return kept, lead, tail
+
+
+def clock_stats(
+    cap: Capture,
+    sclk: str,
+    window: Window,
+    edges: list[tuple[float, int]] | None = None,
+    trimmed: tuple[int, int] = (0, 0),
+) -> dict:
+    """Idle level, period and frequency for the clock inside one window."""
+    if edges is None:
+        edges, lead, tail = transaction_edges(cap, sclk, window)
+        trimmed = (lead, tail)
     rising = [t for t, lv in edges if lv == 1]
     periods = [b - a for a, b in zip(rising, rising[1:])]
 
@@ -208,11 +253,17 @@ def clock_stats(cap: Capture, sclk: str, window: Window) -> dict:
 
     stats = {
         "edges": len(edges),
+        "setup_edges_trimmed": trimmed[0],
+        "teardown_edges_trimmed": trimmed[1],
         "cycles": max(len(rising) - 1, 0),
         "idle_level_before": idle_before,
         "idle_level_after": idle_after,
         "idle_consistent": idle_before == idle_after,
-        "cpol_measured": idle_before,
+        # The level *after* the last clock edge is the honest CPOL reading.
+        # Nothing follows it inside the transaction, so unlike the leading
+        # level it cannot be a setup transition wearing a clock edge's clothes.
+        "cpol_measured": idle_after,
+        "cpol_source": "trailing-idle",
     }
     if periods:
         median = statistics.median(periods)
@@ -226,7 +277,14 @@ def clock_stats(cap: Capture, sclk: str, window: Window) -> dict:
     return stats
 
 
-def infer_cpha(cap: Capture, sclk: str, data: str, window: Window, cpol: int) -> dict:
+def infer_cpha(
+    cap: Capture,
+    sclk: str,
+    data: str,
+    window: Window,
+    cpol: int,
+    clk_edges: list[tuple[float, int]] | None = None,
+) -> dict:
     """Decide whether the data line changes on leading or trailing clock edges.
 
     CPHA=0 launches data on the trailing edge, CPHA=1 on the leading edge.
@@ -234,7 +292,9 @@ def infer_cpha(cap: Capture, sclk: str, data: str, window: Window, cpol: int) ->
     of 0x00 or 0xFF tells us nothing.
     """
     leading = 1 if cpol == 0 else 0
-    clk = [(t, lv) for t, lv in cap.edges(sclk) if window.contains(t)]
+    clk = clk_edges if clk_edges is not None else [
+        (t, lv) for t, lv in cap.edges(sclk) if window.contains(t)
+    ]
     dat = [t for t, _ in cap.edges(data) if window.contains(t)]
     if not clk or not dat:
         return {"cpha_measured": None, "confidence": 0.0, "samples": 0}
@@ -266,10 +326,13 @@ def decode(
     bits_per_word: int = 8,
     msb_first: bool = True,
     backoff_fraction: float = 0.25,
+    clk_edges: list[tuple[float, int]] | None = None,
 ) -> dict:
     """Sample `data` on the clock edge implied by (cpol, cpha) and group to words."""
     want = _SAMPLE_EDGE[(cpol, cpha)]
-    edges = [(t, lv) for t, lv in cap.edges(sclk) if window.contains(t)]
+    edges = clk_edges if clk_edges is not None else [
+        (t, lv) for t, lv in cap.edges(sclk) if window.contains(t)
+    ]
     sample_times = [t for t, lv in edges if lv == want]
 
     rising = [t for t, lv in edges if lv == 1]
@@ -294,6 +357,51 @@ def decode(
         "hex": "".join(f"{w:02x}" for w in words),
         "leftover_bits": len(bits) % bits_per_word,
     }
+
+
+def _burst_edges_after(
+    clk_edges: list[tuple[float, int]],
+    frame_end: float,
+    period_s: float | None,
+    gap_factor: float = 4.0,
+) -> int:
+    """Count clock edges that continue the burst past `frame_end`.
+
+    Walks forward from the frame boundary while each edge still follows its
+    neighbour at roughly the clock cadence, so an unrelated transition much
+    later — the controller parking SCLK once runtime PM drops the clock, tens
+    of milliseconds on — ends the walk instead of being counted as overrun.
+    """
+    times = [t for t, _ in clk_edges]
+    if len(times) < 3:
+        return 0
+    half = (period_s / 2.0) if period_s else statistics.median(
+        b - a for a, b in zip(times, times[1:])
+    )
+    # period_s is None precisely when the frame closed before a single word got
+    # through, which is the worst case of the bug rather than a reason to give
+    # up; fall back to the cadence of the clock edges themselves.
+    if half <= 0:
+        return 0
+    later = [t for t in times if t > frame_end]
+    prev = max((t for t in times if t <= frame_end), default=None)
+    if not later or prev is None:
+        return 0
+    walked: list[float] = []
+    for t in later:
+        if t - prev > half * gap_factor:
+            break
+        walked.append(t)
+        prev = t
+    # A lone transition trailing the burst is the controller parking the line,
+    # not the SSP still shifting.  Drop it, so a clean frame reports zero.
+    while len(walked) == 1 or (
+        len(walked) > 1 and walked[-1] - walked[-2] > half * 1.5
+    ):
+        walked.pop()
+        if not walked:
+            break
+    return len(walked)
 
 
 def analyse(
@@ -324,6 +432,12 @@ def analyse(
         result["cs_channel"] = cs_name
         result["cs_edges"] = len(cs_edges)
         result["cs_asserted"] = len(cs_edges) > 0
+        if not cs_edges:
+            # A chip select that never moves has not simply failed to fire:
+            # active low, a line stuck at 0 is stuck *selected*, which on a
+            # shared bus means every device answers at once.  Which of the two
+            # it is matters, so record the level rather than only the silence.
+            result["cs_constant_level"] = cap.level_at(cs_name, cap.times[0])
         windows = cs_windows(cap, cs_name)
         result["cs_windows"] = [
             {"start_s": w.start, "end_s": w.end, "duration_s": w.end - w.start}
@@ -336,15 +450,27 @@ def analyse(
         result["framing"] = "clock-burst"
         result["burst_count"] = len(windows)
 
+    all_clk = cap.edges(sclk)
     result["transactions"] = []
     for w in windows:
-        clk = clock_stats(cap, sclk, w)
+        edges, lead, tail = transaction_edges(cap, sclk, w)
+        clk = clock_stats(cap, sclk, w, edges, (lead, tail))
         cpol = clk["cpol_measured"]
         entry: dict = {"start_s": w.start, "end_s": w.end, "clock": clk}
 
+        # Clock that keeps running after the frame closes.  On a chip-select
+        # framed capture this is not a decoding nicety: it means the controller
+        # released CS while the SSP was still shifting, so a slave would see a
+        # torn frame.  Reported per transaction because it is the symptom, not
+        # an artefact to be silently discarded.
+        if result.get("framing") == "chip-select":
+            n_after = _burst_edges_after(all_clk, w.end, clk.get("period_s"))
+            entry["clock_edges_after_frame"] = n_after
+            entry["frame_truncated"] = n_after > 0
+
         ref = mosi or miso
         if ref is not None:
-            cpha_info = infer_cpha(cap, sclk, ref, w, cpol)
+            cpha_info = infer_cpha(cap, sclk, ref, w, cpol, clk_edges=edges)
             entry["phase"] = cpha_info
             cpha = cpha_info["cpha_measured"]
             entry["mode_measured"] = (
@@ -359,14 +485,24 @@ def analyse(
 
             if mosi is not None:
                 entry["mosi"] = decode(
-                    cap, sclk, mosi, w, use_cpol, use_cpha, bits_per_word
+                    cap, sclk, mosi, w, use_cpol, use_cpha, bits_per_word,
+                    clk_edges=edges,
                 )
             if miso is not None:
                 entry["miso"] = decode(
-                    cap, sclk, miso, w, use_cpol, use_cpha, bits_per_word
+                    cap, sclk, miso, w, use_cpol, use_cpha, bits_per_word,
+                    clk_edges=edges,
                 )
             if mosi is not None and miso is not None:
-                entry["loopback_match"] = entry["mosi"]["hex"] == entry["miso"]["hex"]
+                # On a bench where pins 19 and 21 are jumpered, MOSI and MISO
+                # are one node and one CSV column, so this comparison is true
+                # by construction and proves nothing.  Say which case it is
+                # rather than letting a tautology read as a measurement.
+                shared = cap.resolve(mosi) == cap.resolve(miso)
+                entry["loopback_shared_channel"] = shared
+                entry["loopback_match"] = (
+                    None if shared else entry["mosi"]["hex"] == entry["miso"]["hex"]
+                )
 
         result["transactions"].append(entry)
 
@@ -377,10 +513,15 @@ def analyse(
             "mode_measured": first.get("mode_measured"),
             "cpol_measured": first["clock"]["cpol_measured"],
             "cpha_measured": first.get("phase", {}).get("cpha_measured"),
+            "idle_level_after": first["clock"]["idle_level_after"],
+            "setup_edges_trimmed": first["clock"]["setup_edges_trimmed"],
             "freq_hz": first["clock"]["freq_hz"],
             "mosi_hex": first.get("mosi", {}).get("hex"),
             "miso_hex": first.get("miso", {}).get("hex"),
             "loopback_match": first.get("loopback_match"),
+            "loopback_shared_channel": first.get("loopback_shared_channel"),
+            "clock_edges_after_frame": first.get("clock_edges_after_frame"),
+            "frame_truncated": first.get("frame_truncated"),
         }
     else:
         result["summary"] = {"transactions": 0}

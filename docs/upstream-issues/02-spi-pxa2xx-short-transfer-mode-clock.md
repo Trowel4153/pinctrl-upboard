@@ -140,9 +140,8 @@ way for a different scenario:
 
 That note is about the clock-enable input, not about `SSE`, but it does mean
 the documented consequence for `SCR` specifically is less clear-cut than for
-`SPO`/`SPH`. Treat the CPOL/CPHA half of this report as the documented defect
-and the clock-rate half as a measurement — the captures below report both, so
-the wire settles it either way.
+`SPO`/`SPH`. In the event this did not matter: both halves were measured, and
+they fail in different ways on the same transfer — see below.
 
 We have not found a public register-level document for the Apollo Lake LPSS
 SSP; Intel's [E3900/A3900 datasheet
@@ -152,31 +151,69 @@ applies the disable/reconfigure/enable sequence to every `ssp_type` including
 `LPSS_BXT_SSP`, which is what this board probes as, with MMP2 the sole
 exception.
 
+## Measured on a UP 4000
+
+Five 8-byte transfers in sequence on UP-APL03 / kernel 7.0.0-22-generic, no
+reload between them, captured at 100 MS/s. T3 is 40 bytes, so it takes the long
+path and acts as the control.
+
+| Case | Path | Requested | Measured on master | With the patch |
+|---|---|---|---|---|
+| T1 | polled | mode 0, 1 MHz | mode 0, 1.000 MHz ✓ | mode 0, 1.000 MHz ✓ |
+| T2 | polled | mode 3, 4 MHz | **mode 0, 1.000 MHz** | mode 3, 3.846 MHz ✓ |
+| T3 | long | mode 3, 4 MHz | mode 3, 3.846 MHz ✓ | mode 3, 3.846 MHz ✓ |
+| T4 | polled | mode 3, 4 MHz | **mode 0**, 3.846 MHz | mode 3, 3.846 MHz ✓ |
+| T5 | polled | mode 0, 1 MHz | mode 0, **3.846 MHz** | mode 0, 1.000 MHz ✓ |
+
+`3.846 MHz` is `100 MHz / 26`, the integer-divisor rendering of a 4 MHz
+request.
+
+**T4 is the observation that pins the mechanism down.** T3 immediately before
+it is a long-path transfer, which takes the disable/reconfigure/enable route
+and genuinely puts mode 3 at 4 MHz on the wire. T4 then asks for *the same
+mode 3 at the same 4 MHz* on the polled path — and comes back at 3.846 MHz in
+**mode 0**. The clock divisor survived; the polarity did not.
+
+That asymmetry is hard to explain any other way. It is not "the request was
+never applied", because half of the same request was. It is what the manual
+describes: `SSCR0` and `SSCR1` written to a port with `SSE` set, where the
+divisor happens to take and the `SPO`/`SPH` fields do not.
+
+T2 and T5 are the stateful demonstration for the clock alone: the same request
+produces different wire behaviour depending only on what ran before it.
+
+<!-- Fill in before filing: attach figs/mr2-mode-and-clock.svg from the
+     results directory (T2, master vs patched).
+
+One methodology note worth carrying into the issue if anyone asks how CPOL was
+read: this controller parks SCLK low between messages, so a mode-3 transfer
+opens with a setup rise inside the chip-select window.  Reading CPOL from the
+level *before* the first edge in the window gets it backwards.  Read it from
+the level after the last clock edge of the frame.  Our first analysis pass got
+this wrong and briefly concluded mode was unmeasurable on the bench. -->
+
 ## How this shows up
 
-The failure is stateful, which makes it easy to misread as intermittent: the
-first short transfer after probe latches a mode and a rate, and every later
-short transfer inherits them regardless of what it asked for. Two userspace
-programs that each work in isolation will break when run in sequence, and the
-same program will behave differently depending on what ran before it.
+The two halves fail differently, which is worth knowing before you go looking
+for it.
 
-A short transfer requesting mode 3 at 4 MHz after a mode 0 / 1 MHz transfer
-comes out on the wire as mode 0 at 1 MHz. Nothing reports an error.
+**The clock rate is stateful**, and that makes it easy to misread as
+intermittent: a short transfer runs at whatever divisor was last latched, so
+two userspace programs that each work in isolation break when run in sequence,
+and the same program behaves differently depending on what ran before it.
+
+**The mode is not stateful — it is simply never set.** On the polled path the
+wire stayed at CPOL=0 in every case we measured, including immediately after a
+long-path transfer had put CPOL=1 on it. A program that only ever issues short
+transfers gets mode 0 no matter what it asks for, consistently, which is if
+anything easier to miss: it looks like the device just does not work rather
+than like a configuration bug.
+
+Nothing reports an error in either case.
 
 Transfers of 32 bytes and over are unaffected — they take
 `pxa2xx_spi_transfer_one()`, so `spidev` users who only ever send long buffers
 will not see this.
-
-<!-- Fill in before filing: capture of T2 below, before and after the patch.
-
-  plot_capture.py runs/b1-t2/digital.csv runs/b2-t2/digital.csv \
-      --out mr2.svg --cs CE0 \
-      --labels "master — request ignored" "with the fix" \
-      --title "8-byte transfer requesting mode 3 at 4 MHz"
-
-Add a second, zoomed figure over one or two bytes (--window START END) so the
-clock idle level and the sampling edge are legible; at 4 MHz the full-width
-view is too dense to show CPOL and CPHA. -->
 
 ## Reproduce
 

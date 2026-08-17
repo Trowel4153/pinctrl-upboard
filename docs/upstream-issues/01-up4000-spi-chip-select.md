@@ -6,7 +6,10 @@
 
 `upboard_set_cs()` is a no-op on UP 4000 because `cs_pins[]` is never
 populated for `BOARD_UP_APL03`. SPI transfers clock data out of the HAT header
-with neither CE0 nor CE1 ever asserting, so no slave device is selected.
+with neither CE0 nor CE1 ever changing state, so no slave device is ever
+selected or deselected — measured on hardware, both lines sit at a constant
+logic 0, which for an active-low select means every device is addressed at
+once.
 
 This is a regression from c026c3e ("fix cs pins setting"), which removed the
 `default:` case that used to cover this board.
@@ -89,20 +92,33 @@ so those are the right indices for this board.
 ## How this shows up
 
 Any SPI transfer through `/dev/spidev*` on the 40-pin header: SCLK and MOSI are
-active on header pins 23 and 19, and header pins 24 (CE0) and 26 (CE1) stay at
-their idle level for the whole transfer. A slave never sees itself addressed.
+active on header pins 23 and 19, while header pins 24 (CE0) and 26 (CE1) never
+move for the whole transfer.
 
-<!-- Fill in with the captured evidence before filing.  Produce the figure with:
+## Measured on a UP 4000
 
-  plot_capture.py runs/b0/digital.csv runs/b1/digital.csv \
-      --out mr1.svg --cs CE0 --labels "master" "with the fix" \
-      --title "UP 4000: SPI chip select across an 8-byte transfer"
+8-byte transfers at 1 MHz on UP-APL03 / kernel 7.0.0-22-generic, captured at
+100 MS/s:
 
-then replace this comment with:  ![](mr1.svg)
+| | master | with the patch |
+|---|---|---|
+| CE0 transitions across the transfer | **0** | 2 |
+| CE1 transitions across the transfer | **0** | 2 |
+| Level CE0/CE1 hold when not transitioning | **constant 0** | 1 between transfers |
 
-The panel captions come from the decoder, so they carry the measured CS edge
-count, mode and clock rate without anyone typing a number.
--->
+The level is the part worth reading twice. Both selects sit at a **constant
+logic 0** for the entire capture, and these are active-low selects — so they
+are not inert, they are stuck **asserted**. Every device on the bus is
+addressed, permanently and simultaneously, while the bus clocks data. On a
+two-device bus both slaves would drive MISO at once.
+
+A logic capture cannot distinguish a line driven low from an undriven line the
+analyser reads as low, so this is a statement about the level, not about which
+of the two it is. Either way nothing on the header ever sees a select edge.
+
+<!-- Fill in before filing: attach figs/mr1-chip-select.svg from the results
+     directory. The panel captions come from the decoder, so the edge count and
+     the stuck level are measured rather than typed. -->
 
 ## Reproduce
 

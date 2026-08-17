@@ -45,30 +45,44 @@ Three things go wrong here:
 The consequence is a silent wrong answer rather than a failure: `xfer2()`
 returns normally with bytes that were never received.
 
-## How this shows up
+## Measured on a UP 4000
 
-A loopback (MOSI jumpered to MISO, header pins 19 and 21) short transfer returns
-the right bytes at high clock rates and wrong bytes below some threshold, with
-no error anywhere. Because the reads are stale FIFO contents, the wrong bytes
-are often the *previous* transfer's data, which reads as an intermittent
-off-by-one-transfer bug.
+8-byte loopback transfers of `deadbeefdeadbeef`, swept by clock rate on
+UP-APL03 / kernel 7.0.0-22-generic, captured at 100 MS/s. Each speed is primed
+with a long-path transfer first, so the polled path is genuinely running at the
+requested rate.
 
-A logic analyser shows the bytes correctly on the wire in both cases — the
-defect is entirely in when the driver gives up reading them.
+| Requested | `xfer2()` returned | Driver reported | Clock edges after CS released |
+|---|---|---|---|
+| 4 MHz, 1 MHz, 500 kHz, 200 kHz | `deadbeefdeadbeef` | success | 0 |
+| 100 kHz | **`00de00adbe00ef00`** | success | **49 of 128** |
+| 50 kHz | **`00000000000000de`** | success | **113 of 128** |
+| 25 kHz | **`0000000000000000`** | success | **127 of 128** |
 
-<!-- Fill in before filing: loopback sweep across 4 MHz / 1 MHz / 100 kHz /
-     25 kHz showing where the returned data diverges from the wire.
+The interleaved zeros are the signature: `SSDR` read before the word arrived,
+returned as data, with no error at any layer.
 
-The figure that makes this case is one capture at a rate where the driver
-returns wrong bytes, annotated with the correct bytes the decoder recovers
-from the wire, paired with the driver's own output:
+**The wire is torn too, and this is the part worth acting on.** The controller
+releases chip select while the SSP is still shifting. At 100 kHz the frame
+closes with 49 of the transfer's 128 clock edges still to come; at 25 kHz it
+closes before the second clock edge. A loopback jumper is forgiving enough not
+to care, but a real slave sees the transaction end mid-word — which can leave
+it desynchronised for subsequent transfers, not merely return one bad buffer.
 
-  plot_capture.py runs/mr3-100k/digital.csv --out mr3.svg --cs CE0 \
-      --title "100 kHz loopback: deadbeef on the wire"
+So this is not only "the driver gives up reading too early". The frame the
+driver emits is invalid.
 
-The caption reporting "MOSI deadbeef  MISO deadbeef  loopback match" next to
-an xfer2() that returned something else is the whole argument. Quote the
-target's output from run.json alongside it. -->
+After the patch every speed down to 25 kHz returns the full payload and the
+clock stops inside the frame (0 edges after CS on all 14 fixed-build captures,
+against non-zero on exactly the 3 failing baseline captures).
+
+<!-- Fill in before filing: attach figs/mr3-rx-loopback.svg from the results
+     directory, and quote the target's rx= line from run.json beside it.
+
+Note for whoever files this: the timeout path was never exercised. The widened
+bound was sufficient at every speed tested, so -ETIMEDOUT did not fire on any
+build. That bears directly on the open question below -- do not imply the
+timeout behaviour was validated on hardware. -->
 
 ## Reproduce
 
@@ -129,3 +143,9 @@ than call `spi_finalize_current_transfer()`. That is the intended behaviour —
 a failed transfer should be visible to userspace as an error — but it is a
 behaviour change from today's silent-wrong-data, so worth confirming it is the
 outcome you want.
+
+Worth saying plainly: **on our bench that path never ran.** The time-based
+bound was sufficient at every speed from 4 MHz down to 25 kHz, so every
+post-patch transfer succeeded and `-ETIMEDOUT` was never returned. The
+error path is therefore reasoned about, not measured, and if you would rather
+it did something else, nothing in our results argues against you.

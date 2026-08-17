@@ -65,6 +65,26 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_CHANNELS = "MOSI=0,MISO=1,SCLK=2,CE0=3,CE1=4"
 
 
+def logic_export_dir(outdir: Path) -> str:
+    """Path to hand Logic 2 for its exports.
+
+    Logic 2 writes to *its own* filesystem.  Under WSL2 the script and Logic
+    share the disk through /mnt/c, but Logic is a Windows process and only
+    understands C:\\-style paths, so a /mnt/c/... directory silently produces
+    no export.  Translate with wslpath when one is present; otherwise the path
+    is already native to whatever host Logic runs on.
+    """
+    p = str(outdir)
+    if p.startswith("/mnt/") and os.path.exists("/usr/bin/wslpath"):
+        try:
+            return subprocess.run(
+                ["wslpath", "-w", p], capture_output=True, text=True, check=True
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return p
+
+
 # --------------------------------------------------------------------------
 # helpers
 
@@ -157,10 +177,25 @@ def capture_with_logic(args, channels: dict[str, int], outdir: Path) -> tuple[Pa
         )
 
     indices = sorted(set(channels.values()))
+    # Apply Logic 2's own capture-time glitch filter (the same one the GUI
+    # exposes) rather than post-filtering in the decoder: it runs on the device,
+    # matches what a human sees in the GUI, and keeps salcap.py free of any
+    # filtering that could mask a real edge.  A few-nanosecond floor removes the
+    # single-sample crosstalk needles a 100 MS/s capture picks up on the header
+    # while staying far below a real half-period (125 ns even at 4 MHz).
+    glitch_filters = []
+    if args.glitch_filter and args.glitch_filter > 0:
+        glitch_filters = [
+            automation.GlitchFilterEntry(
+                channel_index=i, pulse_width_seconds=args.glitch_filter
+            )
+            for i in indices
+        ]
     device_config = automation.LogicDeviceConfiguration(
         enabled_digital_channels=indices,
         digital_sample_rate=args.sample_rate,
         digital_threshold_volts=args.threshold,
+        glitch_filters=glitch_filters,
     )
     timed = args.seconds is not None
     capture_config = automation.CaptureConfiguration(
@@ -190,9 +225,10 @@ def capture_with_logic(args, channels: dict[str, int], outdir: Path) -> tuple[Pa
                 time.sleep(args.settle)
                 capture.stop()
 
-            capture.export_raw_data_csv(directory=str(outdir), digital_channels=indices)
+            export_dir = logic_export_dir(outdir)
+            capture.export_raw_data_csv(directory=export_dir, digital_channels=indices)
             if not args.no_sal:
-                capture.save_capture(filepath=str(outdir / "capture.sal"))
+                capture.save_capture(filepath=os.path.join(export_dir, "capture.sal"))
 
     target_result["logic"] = {
         "app_version": getattr(info, "app_version", None),
@@ -315,14 +351,20 @@ def label_columns(path: Path, channels: dict[str, int]) -> list[str]:
 # --------------------------------------------------------------------------
 
 
-def build_analysis_cmd(args, csv_path: Path, outdir: Path) -> list[str]:
+def build_analysis_cmd(args, csv_path: Path, outdir: Path, resolved: list[str]) -> list[str]:
+    # On a loopback bench MOSI and MISO can be a single probed node (header pins
+    # 19 and 21 jumpered), so the export carries one data column.  When there is
+    # no distinct MISO column, decode MISO from the MOSI column: it is the same
+    # wire, which is exactly what the jumper guarantees.
+    mosi_col = "MOSI" if "MOSI" in resolved else "MISO"
+    miso_col = "MISO" if "MISO" in resolved else mosi_col
     cmd = [
         sys.executable,
         str(HERE / "analyze_capture.py"),
         str(csv_path),
         "--json",
         str(outdir / "analysis.json"),
-        "--sclk", "SCLK", "--mosi", "MOSI", "--miso", "MISO",
+        "--sclk", "SCLK", "--mosi", mosi_col, "--miso", miso_col,
     ]
     if args.cs:
         cmd += ["--cs", args.cs]
@@ -373,6 +415,11 @@ def main() -> int:
                     help="digital samples/s; keep it >=10x the SPI clock")
     lg.add_argument("--threshold", type=float, default=1.2,
                     help="logic threshold in volts; 1.2 for 3.3V signalling")
+    lg.add_argument("--glitch-filter", type=float, default=20e-9,
+                    help="Logic 2 device glitch filter: drop pulses shorter than "
+                         "this many seconds on every enabled channel (default 20e-9 "
+                         "= 20 ns; 0 disables). Removes single-sample crosstalk "
+                         "needles a 100 MS/s header capture picks up.")
     lg.add_argument("--seconds", type=float, default=None,
                     help="timed capture of this length; default is a manual "
                          "capture bracketing the target command")
@@ -457,7 +504,7 @@ def main() -> int:
         print(f"build        {prov['build_id']}")
     print(f"run          {outdir / 'run.json'}")
 
-    rc = subprocess.run(build_analysis_cmd(args, csv_path, outdir)).returncode
+    rc = subprocess.run(build_analysis_cmd(args, csv_path, outdir, resolved)).returncode
     return rc
 
 

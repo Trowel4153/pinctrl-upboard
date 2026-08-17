@@ -641,9 +641,9 @@ as success.
    127 at 25 kHz — at 25 kHz the frame closes before the second clock edge.
 
 Oracle 2 is the one to lead with. It needs no jumper, it is visible to any
-slave on the bus rather than only to a loopback, and on the run in
-`results/` it agreed with the target's verdict on all 24 captures: non-zero for
-exactly the three that failed, zero for the twenty-one that passed.
+slave on the bus rather than only to a loopback, and on the run in `results/`
+it agreed with the target's own verdict on all 28 MR3 captures: zero on each of
+the 25 that succeeded, non-zero on exactly the 3 that came back wrong.
 
 Sweep, on B1 then B3:
 

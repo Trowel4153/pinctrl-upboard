@@ -177,9 +177,10 @@ chip select while the SSP is still shifting. At 25 kHz CS is gone before the
 second clock edge — 127 of the 128 edges arrive with the frame already closed.
 A real slave sees the transaction torn mid-word; the loopback jumper is simply
 the only device forgiving enough not to care. The count is
-`clock_edges_after_frame` in each `analysis.json`, and it is **0 for all 21
-passing captures and non-zero for exactly the 3 failing ones** — perfect
-agreement with the target's own verdict, from an independent signal.
+`clock_edges_after_frame` in each `analysis.json`. Across all 28 MR3 captures
+it is **0 on every one of the 25 the target reported as success, and non-zero
+on exactly the 3 it reported as mismatches** — perfect agreement with the
+target's own verdict, from a signal measured independently of it.
 
 This reframes MR3 from "a short read in one process" to "the driver violates
 SPI framing", and it needs no loopback oracle at all, so it survives on a bench

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="514" viewBox="0 0 1000 514" role="img" aria-label="UP 4000 MR2 T2: first six clock cycles — clock polarity and sampling edge">
+<rect width="1000" height="514" fill="#ffffff"/>
+<text x="14" y="24" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" font-weight="700" fill="#111827">UP 4000 MR2 T2: first six clock cycles — clock polarity and sampling edge</text>
+<rect x="2" y="34" width="4" height="214" fill="#b45309" rx="2"/>
+<text x="74" y="50" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="700" fill="#111827">baseline (B1) — SCLK idles low, mode 0</text>
+<text x="74" y="68" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#6b7280">mode 0 (cpol=0 cpha=0)   1.000 MHz   CS edges 2</text>
+<text x="74" y="83" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#6b7280">MOSI aa55aa55aa55aa55   MOSI/MISO jumpered — one probed node</text>
+<rect x="74.00" y="102" width="908.00" height="126" fill="#dbeafe" opacity="0.55"/>
+<text x="528.00" y="97" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">CE0 asserted, 166.5 us</text>
+<line x1="74.00" y1="102" x2="74.00" y2="228" stroke="#e5e7eb" stroke-width="1"/>
+<line x1="306.82" y1="102" x2="306.82" y2="228" stroke="#e5e7eb" stroke-width="1"/>
+<line x1="539.64" y1="102" x2="539.64" y2="228" stroke="#e5e7eb" stroke-width="1"/>
+<line x1="772.46" y1="102" x2="772.46" y2="228" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="131" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#111827">SCLK</text>
+<polyline points="74.00,131.00 178.77,131.00 178.77,107.00 236.97,107.00 236.97,131.00 295.18,131.00 295.18,107.00 353.38,107.00 353.38,131.00 411.59,131.00 411.59,107.00 469.79,107.00 469.79,131.00 528.00,131.00 528.00,107.00 586.21,107.00 586.21,131.00 644.41,131.00 644.41,107.00 702.62,107.00 702.62,131.00 760.82,131.00 760.82,107.00 819.03,107.00 819.03,131.00 877.23,131.00 877.23,107.00 935.44,107.00 935.44,131.00 982.00,131.00" fill="none" stroke="#2563eb" stroke-width="1.8" stroke-linejoin="miter"/>
+<text x="64" y="173" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#111827">MOSI</text>
+<polyline points="74.00,173.00 120.56,173.00 120.56,149.00 236.97,149.00 236.97,173.00 353.38,173.00 353.38,149.00 469.79,149.00 469.79,173.00 586.21,173.00 586.21,149.00 702.62,149.00 702.62,173.00 819.03,173.00 819.03,149.00 935.44,149.00 935.44,173.00 982.00,173.00" fill="none" stroke="#7c3aed" stroke-width="1.8" stroke-linejoin="miter"/>
+<text x="64" y="215" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#111827">CE0</text>
+<polyline points="74.00,215.00 982.00,215.00" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linejoin="miter"/>
+<text x="82.00" y="207.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#6b7280">no transitions in window</text>
+<line x1="74.00" y1="234" x2="982.00" y2="234" stroke="#6b7280" stroke-width="1"/>
+<text x="74.00" y="248" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">0</text>
+<text x="306.82" y="248" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">2.0 us</text>
+<text x="539.64" y="248" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">4.0 us</text>
+<text x="772.46" y="248" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">6.0 us</text>
+<rect x="2" y="264" width="4" height="214" fill="#047857" rx="2"/>
+<text x="74" y="280" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" font-weight="700" fill="#111827">sscr-latch (B2) — setup rise, then SCLK idles high, mode 3</text>
+<text x="74" y="298" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#6b7280">mode 3 (cpol=1 cpha=1)   3.846 MHz   CS edges 2</text>
+<text x="74" y="313" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#6b7280">MOSI aa55aa55aa55aa55   MOSI/MISO jumpered — one probed node</text>
+<rect x="74.00" y="332" width="908.00" height="126" fill="#dbeafe" opacity="0.55"/>
+<text x="528.00" y="327" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">CE0 asserted, 40.0 us</text>
+<line x1="74.00" y1="332" x2="74.00" y2="458" stroke="#e5e7eb" stroke-width="1"/>
+<line x1="361.43" y1="332" x2="361.43" y2="458" stroke="#e5e7eb" stroke-width="1"/>
+<line x1="648.87" y1="332" x2="648.87" y2="458" stroke="#e5e7eb" stroke-width="1"/>
+<line x1="936.30" y1="332" x2="936.30" y2="458" stroke="#e5e7eb" stroke-width="1"/>
+<text x="64" y="361" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#111827">SCLK</text>
+<polyline points="74.00,361.00 178.77,361.00 178.77,337.00 469.08,337.00 469.08,361.00 503.57,361.00 503.57,337.00 543.81,337.00 543.81,361.00 578.30,361.00 578.30,337.00 618.54,337.00 618.54,361.00 653.03,361.00 653.03,337.00 693.27,337.00 693.27,361.00 727.77,361.00 727.77,337.00 765.13,337.00 765.13,361.00 802.50,361.00 802.50,337.00 839.86,337.00 839.86,361.00 877.23,361.00 877.23,337.00 914.60,337.00 914.60,361.00 951.96,361.00 951.96,337.00 982.00,337.00" fill="none" stroke="#2563eb" stroke-width="1.8" stroke-linejoin="miter"/>
+<text x="64" y="403" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#111827">MOSI</text>
+<polyline points="74.00,403.00 469.08,403.00 469.08,379.00 543.81,379.00 543.81,403.00 615.67,403.00 615.67,379.00 693.27,379.00 693.27,403.00 765.13,403.00 765.13,379.00 842.74,379.00 842.74,403.00 914.60,403.00 914.60,379.00 982.00,379.00" fill="none" stroke="#7c3aed" stroke-width="1.8" stroke-linejoin="miter"/>
+<text x="64" y="445" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#111827">CE0</text>
+<polyline points="74.00,445.00 982.00,445.00" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linejoin="miter"/>
+<text x="82.00" y="437.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#6b7280">no transitions in window</text>
+<line x1="74.00" y1="464" x2="982.00" y2="464" stroke="#6b7280" stroke-width="1"/>
+<text x="74.00" y="478" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">0</text>
+<text x="361.43" y="478" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">1.0 us</text>
+<text x="648.87" y="478" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">2.0 us</text>
+<text x="936.30" y="478" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">3.0 us</text>
+<text x="14" y="507" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#6b7280">B1 82ba569 vs B2 82ba569+8f026fe; same captures as the previous figure, first 6 cycles only</text>
+</svg>

@@ -98,6 +98,14 @@ With the fix both CE0 and CE1 frame their transfer (2 transitions each,
 
 ![MR2](figs/mr2-mode-and-clock.svg)
 
+![MR2 zoom](figs/mr2-mode-zoom.svg)
+
+The second figure is the first six clock cycles of the same two captures. It is
+the one that settles the mode: the baseline clock rests low and returns low,
+while the patched one rises to its idle level before the burst — that wide high
+plateau is the setup transition — and clocks from high. The panels are fitted
+separately, so read the rate off the axis rather than the density.
+
 T1–T5 run in sequence with no reload. Timestamps in `run.json` confirm the
 order. Both halves of the request — mode and clock rate — are measured.
 
@@ -216,11 +224,19 @@ Fri, 30 Jun 2023` both fixed.
    (B1, B3): without a preceding long-path transfer at the target speed, the
    polled path never re-latches the low clock and every case runs at
    ~3.846 MHz, masking the bug. B4 (has MR2) needs no priming.
-3. **A torn frame has no measurable mode.** CPOL is read from the level after
+3. **Figures are fitted per panel, not to a shared absolute window.** Two
+   stacked captures are separate recordings and the same transfer sits at a
+   different offset in each, so a shared absolute window mostly frames the gap
+   between them. Each panel now fits its own transfer; panels keep a common
+   *duration* when their natural spans are within 2× (MR1, MR3) and are fitted
+   independently when they are not (MR2, where a 4× rate difference would
+   otherwise squeeze the faster transfer to about a pixel per edge). Where the
+   axes differ the title says so.
+4. **A torn frame has no measurable mode.** CPOL is read from the level after
    the last clock edge inside the frame; when the frame closed early that level
    belongs to a transfer still in progress. The MR3 baseline figures say
    "mode not measurable (frame torn)" rather than printing a number.
-4. **The `srcversion` provenance gap** above.
+5. **The `srcversion` provenance gap** above.
 
 ## Where this diverges from the test plan as written
 

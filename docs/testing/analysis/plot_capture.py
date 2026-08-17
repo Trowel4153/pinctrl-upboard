@@ -81,6 +81,8 @@ def fmt_hz(v) -> str:
 
 
 def fmt_time(t: float) -> str:
+    if t == 0:
+        return "0"
     if t >= 1e-3:
         return f"{t*1e3:.2f} ms"
     if t >= 1e-6:
@@ -132,6 +134,7 @@ class Panel:
         )
         self.label = label or os.path.basename(path)
         self.accent = accent
+        self.sclk = sclk
         # Jumpered MOSI/MISO resolve to one column; drawing it twice under two
         # labels invents a second trace that was never probed.
         self.channels = []
@@ -142,13 +145,67 @@ class Panel:
                 self.channels.append(c)
         self.cs = cs
 
-    def auto_window(self, pad=0.25):
-        tx = self.result["transactions"]
-        if not tx:
+    def auto_window(self, pad=0.15):
+        """Time span worth drawing: the clock burst, not the whole capture.
+
+        Framing on the chip-select window is wrong in both directions here. A
+        select stuck low spans the entire 1.5 s recording, which would draw an
+        8-byte transfer as a single vertical hairline; and a select released
+        early — the MR 3 defect — closes long before the clock stops, which
+        would crop off the very overrun the figure exists to show.
+
+        So window on the clock, and widen to the chip select only when the two
+        are the same order of magnitude.
+        """
+        # Split only at a gap two orders of magnitude past the clock cadence.
+        # A polled transfer feeds the FIFO one word at a time, so its clock
+        # pauses briefly between bytes -- eight separate bursts for eight
+        # bytes at the default factor of 4, which would frame the figure on a
+        # single byte. The gaps that genuinely end a transfer are the parks,
+        # tens of milliseconds against a sub-microsecond half-period.
+        edges = [t for t, _ in self.cap.edges(self.sclk)]
+        bursts = salcap.clock_bursts(edges, gap_factor=100.0) if edges else []
+        if bursts:
+            burst = max(bursts, key=lambda w: sum(1 for t in edges
+                                                  if w.start <= t <= w.end))
+            lo, hi = burst.start, burst.end
+        elif self.result["transactions"]:
+            tx = self.result["transactions"]
+            lo, hi = tx[0]["start_s"], tx[-1]["end_s"]
+        else:
             return self.cap.times[0], self.cap.times[-1]
-        lo, hi = tx[0]["start_s"], tx[-1]["end_s"]
-        margin = max((hi - lo) * pad, 1e-6)
-        return max(lo - margin, self.cap.times[0]), min(hi + margin, self.cap.times[-1])
+
+        # Widen to the chip-select frame when there is a plausible one. It is
+        # the better definition of "the transfer" — it survives a mid-transfer
+        # scheduling pause that would otherwise crop the figure to whichever
+        # side of the pause had more edges. A select stuck low spans the whole
+        # recording and is thousands of times too wide to be that, so it is
+        # rejected on scale rather than trusted.
+        span = hi - lo
+        for w in self.result.get("cs_windows", []):
+            overlaps = w["start_s"] <= hi and w["end_s"] >= lo
+            if overlaps and w["duration_s"] <= max(span * 50, 1e-9):
+                lo, hi = min(lo, w["start_s"]), max(hi, w["end_s"])
+
+        margin = max((hi - lo) * pad, 1e-7)
+        return (max(lo - margin, self.cap.times[0]),
+                min(hi + margin, self.cap.times[-1]))
+
+    def zoom_window(self, cycles: int, pad=0.15):
+        """The first `cycles` clock periods of the transfer.
+
+        The close-up that makes CPOL and CPHA readable. A whole 8-byte transfer
+        at 4 MHz is 64 cycles across the page; nobody can see which edge the
+        data changes on at that scale, which is the one thing a mode argument
+        turns on.
+        """
+        lo, hi = self.auto_window(pad=0.0)
+        edges = [t for t, _ in self.cap.edges(self.sclk) if lo <= t <= hi]
+        if len(edges) < 3:
+            return self.auto_window(pad)
+        end = edges[min(cycles * 2, len(edges) - 1)]
+        margin = (end - edges[0]) * pad
+        return max(edges[0] - margin, self.cap.times[0]), end + margin
 
     def caption(self) -> list[str]:
         s = self.result["summary"]
@@ -241,7 +298,11 @@ class Panel:
                         f'{esc(fmt_time(w.end - w.start))}</text>'
                     )
 
-        for t in nice_ticks(lo, hi):
+        # Ticks are chosen on the *relative* range and then offset, so they read
+        # 0 / 50 us / 100 us rather than whatever round absolute instants happen
+        # to fall inside a window that starts 0.98 s into the capture.
+        ticks = [lo + r for r in nice_ticks(0.0, hi - lo)]
+        for t in ticks:
             out.append(
                 f'<line x1="{sx(t):.2f}" y1="{top}" x2="{sx(t):.2f}" '
                 f'y2="{top+rows_h}" stroke="{GRID}" stroke-width="1"/>'
@@ -284,7 +345,7 @@ class Panel:
             f'<line x1="{sx(lo):.2f}" y1="{axis_y-8}" x2="{sx(hi):.2f}" '
             f'y2="{axis_y-8}" stroke="{MUTED}" stroke-width="1"/>'
         )
-        for t in nice_ticks(lo, hi):
+        for t in ticks:
             out.append(
                 f'<text x="{sx(t):.2f}" y="{axis_y+6}" text-anchor="middle" '
                 f'font-family="{FONT}" font-size="10" fill="{MUTED}">'
@@ -293,11 +354,55 @@ class Panel:
         return out
 
 
-def build_svg(panels, width, title=None, footer=None) -> tuple[str, int]:
-    lo = min(p.auto_window()[0] for p in panels)
-    hi = max(p.auto_window()[1] for p in panels)
-    if hi <= lo:
-        hi = lo + 1e-6
+def panel_windows(panels, fit="auto", zoom_cycles=None) -> list[tuple[float, float]]:
+    """One window per panel, each framing its own transfer.
+
+    Stacked panels are separate captures, and the same transfer sits at a
+    different wall-clock offset in each — a few milliseconds apart is typical.
+    Taking min(start) and max(end) across them, as this used to, produces a
+    window spanning the gap *between* the two captures, so both transfers
+    collapse into slivers at opposite ends of an axis that is mostly empty.
+
+    Whether the panels should then share a duration depends on the comparison:
+
+    * ``shared`` keeps them dimensionally comparable, so a 4 MHz burst really
+      does look four times denser than a 1 MHz one. That is the honest picture
+      when the rates are close, and useless when they are not — at a 4:1 ratio
+      the faster transfer gets an eighth of the width and its edges collapse
+      into a smear about a pixel apart.
+    * ``each`` fits every panel to its own transfer, so both are legible and
+      the rate difference is read off the axis and the caption instead.
+    * ``auto`` (the default) shares when the natural spans are within 2x and
+      falls back to fitting each when they are further apart than that.
+    """
+    wins = [p.auto_window() for p in panels]
+    if zoom_cycles:
+        wins = [p.zoom_window(zoom_cycles) for p in panels]
+    spans = [hi - lo for lo, hi in wins]
+    if fit == "each" or (
+        fit == "auto" and spans and max(spans) > 2.0 * max(min(spans), 1e-12)
+    ):
+        return [(lo, hi if hi > lo else lo + 1e-6) for lo, hi in wins]
+
+    span = max(spans)
+    out = []
+    for p, (lo, hi) in zip(panels, wins):
+        mid = (lo + hi) / 2.0
+        a, b = mid - span / 2.0, mid + span / 2.0
+        # Slide rather than shrink when the window runs off the end of a
+        # capture, so the shared duration survives.
+        first, last = p.cap.times[0], p.cap.times[-1]
+        if a < first:
+            a, b = first, min(first + span, last)
+        elif b > last:
+            a, b = max(last - span, first), last
+        out.append((a, b if b > a else a + 1e-6))
+    return out
+
+
+def build_svg(panels, width, title=None, footer=None, fit="auto",
+              zoom_cycles=None) -> tuple[str, int]:
+    windows = panel_windows(panels, fit=fit, zoom_cycles=zoom_cycles)
 
     head = 34 if title else 8
     foot = 20 if footer else 8
@@ -316,7 +421,7 @@ def build_svg(panels, width, title=None, footer=None) -> tuple[str, int]:
         )
 
     y = head
-    for p in panels:
+    for p, (lo, hi) in zip(panels, windows):
         body += p.render(0, y, width, lo, hi)
         y += p.height() + 10
 
@@ -479,8 +584,18 @@ def main() -> int:
     ap.add_argument("--cs", default=None)
     ap.add_argument("--bits", type=int, default=8, dest="bits_per_word")
     ap.add_argument("--window", nargs=2, type=float, metavar=("START", "END"),
-                    default=None, help="time window in seconds; default auto-fits "
-                                       "the transactions")
+                    default=None, help="absolute time window in seconds; by "
+                                       "default each panel fits its own transfer")
+    ap.add_argument("--fit", choices=("auto", "shared", "each"), default="auto",
+                    help="'shared' gives both panels the same duration, so a "
+                         "faster clock looks denser; 'each' fits every panel to "
+                         "its own transfer, which keeps both legible when the "
+                         "rates differ; 'auto' (default) shares only when the "
+                         "two spans are within 2x")
+    ap.add_argument("--zoom-cycles", type=int, default=None, metavar="N",
+                    help="frame the first N clock cycles instead of the whole "
+                         "transfer — the close-up that makes CPOL and CPHA "
+                         "legible at 4 MHz")
     args = ap.parse_args()
 
     if len(args.csv) > 2:
@@ -504,9 +619,10 @@ def main() -> int:
 
     if args.window:
         for p in panels:
-            p.auto_window = lambda _p=p, w=args.window: (w[0], w[1])
+            p.auto_window = lambda _p=p, w=args.window, **kw: (w[0], w[1])
 
-    svg, height = build_svg(panels, args.width, args.title, args.footer)
+    svg, height = build_svg(panels, args.width, args.title, args.footer,
+                            fit=args.fit, zoom_cycles=args.zoom_cycles)
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write(svg)
     print(f"wrote {args.out}  ({args.width}x{height}, {len(svg)/1024:.1f} kB)")
